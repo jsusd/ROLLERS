@@ -50,11 +50,47 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
   <script type="text/babel">
     const { useState, useEffect, useRef, useMemo } = React;
 
-    // Helper para obtener la foto real del New York Roll
+    // Helper para obtener la foto real del New York Roll (busca por imageKey, id o nombre)
     function getRollImage(flavor) {
-      if (window.BULL_MARKET_ROLL_IMAGES && flavor.imageKey && window.BULL_MARKET_ROLL_IMAGES[flavor.imageKey]) {
+      if (!flavor) return '';
+      if (!window.BULL_MARKET_ROLL_IMAGES) return flavor.imageUrl || '';
+
+      // 1. Por imageKey directo
+      if (flavor.imageKey && window.BULL_MARKET_ROLL_IMAGES[flavor.imageKey]) {
         return window.BULL_MARKET_ROLL_IMAGES[flavor.imageKey];
       }
+
+      // 2. Mapeo por ID oficial
+      const idMap = {
+        'flv-avellanas': 'crema-avellanas',
+        'flv-tiramisu': 'tiramisu',
+        'flv-ovomaltina': 'ovomaltina',
+        'flv-pie-limon': 'pie-limon',
+        'flv-frutos-rojos': 'frutos-rojos',
+        'flv-dulce-leche': 'dulce-de-leche',
+        'flv-cinnamon': 'cinnamon',
+        'flv-samba': 'samba',
+        'flv-pistacho': 'pistacho',
+        'flv-oreo': 'oreo',
+      };
+      const keyFromId = idMap[flavor.id || ''] || idMap[flavor.flavorId || ''];
+      if (keyFromId && window.BULL_MARKET_ROLL_IMAGES[keyFromId]) {
+        return window.BULL_MARKET_ROLL_IMAGES[keyFromId];
+      }
+
+      // 3. Mapeo por nombre de sabor
+      const name = (flavor.name || flavor.flavorName || '').toUpperCase();
+      if (name.includes('AVELLANA')) return window.BULL_MARKET_ROLL_IMAGES['crema-avellanas'];
+      if (name.includes('TIRAMIS')) return window.BULL_MARKET_ROLL_IMAGES['tiramisu'];
+      if (name.includes('OVOMALTINA')) return window.BULL_MARKET_ROLL_IMAGES['ovomaltina'];
+      if (name.includes('LIM') || name.includes('PIE')) return window.BULL_MARKET_ROLL_IMAGES['pie-limon'];
+      if (name.includes('FRUTOS') || name.includes('ROJOS')) return window.BULL_MARKET_ROLL_IMAGES['frutos-rojos'];
+      if (name.includes('LECHE') || name.includes('DULCE')) return window.BULL_MARKET_ROLL_IMAGES['dulce-de-leche'];
+      if (name.includes('CINNAMON') || name.includes('CANELA')) return window.BULL_MARKET_ROLL_IMAGES['cinnamon'];
+      if (name.includes('SAMBA')) return window.BULL_MARKET_ROLL_IMAGES['samba'];
+      if (name.includes('PISTACHO')) return window.BULL_MARKET_ROLL_IMAGES['pistacho'];
+      if (name.includes('OREO')) return window.BULL_MARKET_ROLL_IMAGES['oreo'];
+
       return flavor.imageUrl || '';
     }
 
@@ -330,6 +366,17 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
         this.playBellTone(ctx, 293.66, now, 0.2, 0.25);
         this.playBellTone(ctx, 220.0, now + 0.16, 0.35, 0.28);
       }
+
+      playAnnouncementSound() {
+        const ctx = this.getContext();
+        if (!ctx) return;
+        const now = ctx.currentTime;
+        // Campanilla triple de aviso tipo intercomunicador: Do - Mi - Sol - Do agudo
+        this.playBellTone(ctx, 523.25, now, 0.22, 0.28);
+        this.playBellTone(ctx, 659.25, now + 0.11, 0.22, 0.3);
+        this.playBellTone(ctx, 783.99, now + 0.22, 0.22, 0.32);
+        this.playBellTone(ctx, 1046.5, now + 0.35, 0.55, 0.38);
+      }
     }
 
     const soundEngine = new SoundEngine();
@@ -343,13 +390,38 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
     const DEFAULT_ROOM_CODE = 'bull_market_kds_live_v1';
     const LOCAL_CHANNEL_NAME = 'bull_market_kds_channel_v2';
 
-    // Obtener sabores guardados (NUNCA se borran al reiniciar el día)
+    // Obtener sabores guardados (Garantiza siempre los 10 sabores Bull Market y repara emojis)
     function getSavedFlavors() {
       try {
         const raw = localStorage.getItem(STORAGE_FLAVORS_KEY);
         if (raw) {
           const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            // Unir siempre con INITIAL_FLAVORS para garantizar que los 10 sabores oficiales existan
+            const existingMap = new Map(parsed.map((f) => [f.id, f]));
+            const completeFlavors = INITIAL_FLAVORS.map((base) => {
+              const saved = existingMap.get(base.id);
+              if (!saved) return base;
+              const cleanEmoji = saved.emoji && saved.emoji !== '??' ? saved.emoji : base.emoji;
+              return {
+                ...base,
+                ...saved,
+                name: base.name, // Mantener nombre canónico
+                emoji: cleanEmoji,
+                imageKey: base.imageKey,
+                imageUrl: base.imageUrl,
+              };
+            });
+
+            // Agregar sabores personalizados extra creados por el usuario
+            parsed.forEach((custom) => {
+              if (!INITIAL_FLAVORS.some((b) => b.id === custom.id)) {
+                completeFlavors.push(custom);
+              }
+            });
+
+            return completeFlavors;
+          }
         }
       } catch (e) {}
       return INITIAL_FLAVORS;
@@ -357,7 +429,9 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
 
     function saveFlavors(flavors) {
       try {
-        localStorage.setItem(STORAGE_FLAVORS_KEY, JSON.stringify(flavors));
+        if (Array.isArray(flavors) && flavors.length > 0) {
+          localStorage.setItem(STORAGE_FLAVORS_KEY, JSON.stringify(flavors));
+        }
       } catch (e) {}
     }
 
@@ -498,8 +572,21 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
       } catch (e) {}
 
       const initial = {
+        version: 1,
         flavors: currentFlavors,
         orders: createInitialDemoOrders(currentFlavors),
+        announcements: [
+          {
+            id: 'ann-init-1',
+            type: 'batch_ready',
+            flavorId: 'flv-avellanas',
+            flavorName: 'CREMA DE AVELLANAS',
+            quantity: 12,
+            text: '🔥 ¡TANDA LISTA! Salieron 12 rolls de CREMA DE AVELLANAS recién horneados',
+            createdAt: Date.now() - 5 * 60 * 1000,
+            active: true,
+          },
+        ],
         nextTicketSeq: 4,
         lastUpdated: Date.now(),
         roomCode: currentRoom,
@@ -556,27 +643,155 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
       }
 
       handleIncomingState(incoming, meta) {
-        if (!incoming || !incoming.lastUpdated) return;
-        if (incoming.lastUpdated <= this.currentState.lastUpdated) return;
+        if (!incoming) return;
 
-        // Persistir sabores por separado para que NUNCA se borren
+        // 1. MEZCLA CRDT DE ÓRDENES (Garantiza sincronización simultánea sin pérdida por desfase de reloj)
+        const statusWeight = { pendiente: 1, preparando: 2, despachado: 3 };
+        const orderMap = new Map();
+
+        // Cargar órdenes existentes
+        (this.currentState.orders || []).forEach((o) => {
+          orderMap.set(o.id, { ...o });
+        });
+
+        let hasNewOrderAdded = false;
+        (incoming.orders || []).forEach((inc) => {
+          const loc = orderMap.get(inc.id);
+          if (!loc) {
+            orderMap.set(inc.id, { ...inc });
+            if (inc.status === 'pendiente' || inc.status === 'preparando') {
+              hasNewOrderAdded = true;
+            }
+          } else {
+            // Si el estado entrante es más avanzado o igual, actualizar
+            const incWeight = statusWeight[inc.status] || 0;
+            const locWeight = statusWeight[loc.status] || 0;
+            const chosenStatus = incWeight >= locWeight ? inc.status : loc.status;
+
+            // Mezclar items tachados (si cualquiera de los dos lo tachó, se conserva tachado)
+            const mergedItems = (loc.items || []).map((it, idx) => {
+              const incIt = inc.items && inc.items[idx];
+              return {
+                ...it,
+                checked: Boolean(it.checked || (incIt && incIt.checked)),
+              };
+            });
+
+            orderMap.set(inc.id, {
+              ...loc,
+              ...inc,
+              status: chosenStatus,
+              items: mergedItems,
+              startedAt: loc.startedAt || inc.startedAt,
+              dispatchedAt: loc.dispatchedAt || inc.dispatchedAt,
+            });
+          }
+        });
+
+        const mergedOrders = Array.from(orderMap.values()).sort(
+          (a, b) => a.createdAt - b.createdAt
+        );
+
+        // Rehidratar órdenes con fotos
+        const hydratedOrders = mergedOrders.map((o) => ({
+          ...o,
+          items: (o.items || []).map((it) => ({
+            ...it,
+            imageUrl: getRollImage(it),
+          })),
+        }));
+
+        // 2. REHIDRATAR Y UNIR SABORES (Los 10 sabores canónicos jamás se borran)
+        let currentBase =
+          Array.isArray(this.currentState.flavors) && this.currentState.flavors.length >= INITIAL_FLAVORS.length
+            ? [...this.currentState.flavors]
+            : INITIAL_FLAVORS.map((b) => ({ ...b }));
+
         if (incoming.flavors && incoming.flavors.length > 0) {
-          saveFlavors(incoming.flavors);
+          incoming.flavors.forEach((incFlv) => {
+            const idx = currentBase.findIndex((f) => f.id === incFlv.id);
+            const baseRef = INITIAL_FLAVORS.find((b) => b.id === incFlv.id) || {};
+            const cleanEmoji = incFlv.emoji && incFlv.emoji !== '??' ? incFlv.emoji : baseRef.emoji || '🥐';
+            const rollImg = getRollImage(incFlv);
+
+            if (idx >= 0) {
+              currentBase[idx] = {
+                ...baseRef,
+                ...currentBase[idx],
+                ...incFlv,
+                name: baseRef.name || currentBase[idx].name || incFlv.name,
+                emoji: cleanEmoji,
+                imageKey: baseRef.imageKey || currentBase[idx].imageKey || incFlv.imageKey || '',
+                imageUrl: currentBase[idx].imageUrl || rollImg || baseRef.imageUrl || '',
+              };
+            } else {
+              currentBase.push({
+                ...baseRef,
+                ...incFlv,
+                emoji: cleanEmoji,
+                imageKey: baseRef.imageKey || incFlv.imageKey || '',
+                imageUrl: rollImg || baseRef.imageUrl || '',
+              });
+            }
+          });
         }
+        const mergedFlavors = currentBase;
+        saveFlavors(mergedFlavors);
+
+        // 3. MEZCLAR ANUNCIOS DE PRODUCCIÓN Y AVISOS DE PANADERÍA A BARRA
+        const incomingAnnouncements = incoming.announcements || [];
+        const localAnnouncements = this.currentState.announcements || [];
+        const annMap = new Map();
+        [...incomingAnnouncements, ...localAnnouncements].forEach((a) => {
+          if (a && a.id) annMap.set(a.id, a);
+        });
+        const mergedAnnouncements = Array.from(annMap.values())
+          .sort((a, b) => b.createdAt - a.createdAt)
+          .slice(0, 15);
+
+        // Detectar si hay un aviso nuevo
+        const newestIncomingAnn = incomingAnnouncements[0];
+        const isNewAnnouncement = Boolean(
+          newestIncomingAnn &&
+          (!localAnnouncements.length || newestIncomingAnn.id !== localAnnouncements[0].id) &&
+          Date.now() - newestIncomingAnn.createdAt < 45000
+        );
+
+        const nextSeq = Math.max(
+          this.currentState.nextTicketSeq || 1,
+          incoming.nextTicketSeq || 1
+        );
+
+        const hydratedState = {
+          version: Math.max(this.currentState.version || 0, incoming.version || 0) + 1,
+          flavors: mergedFlavors,
+          orders: hydratedOrders,
+          announcements: mergedAnnouncements,
+          nextTicketSeq: nextSeq,
+          lastUpdated: Date.now(),
+          roomCode: this.currentState.roomCode,
+        };
 
         try {
-          localStorage.setItem(STORAGE_STATE_KEY, JSON.stringify(incoming));
+          localStorage.setItem(STORAGE_STATE_KEY, JSON.stringify(hydratedState));
         } catch (e) {}
 
-        const isNew =
-          meta?.isNewOrder ||
-          (incoming.orders && incoming.orders.length > this.currentState.orders.length);
+        const isNewOrder = Boolean(meta?.isNewOrder || hasNewOrderAdded);
 
-        this.notify(incoming, { isNewOrder: isNew, newOrderTicket: meta?.newOrderTicket });
+        this.notify(hydratedState, {
+          isNewOrder,
+          newOrderTicket: meta?.newOrderTicket,
+          isNewAnnouncement,
+          announcement: isNewAnnouncement ? newestIncomingAnn : null,
+        });
       }
 
       publishState(nextState, meta) {
-        const stamped = { ...nextState, lastUpdated: Date.now() };
+        const stamped = {
+          ...nextState,
+          version: (this.currentState.version || 0) + 1,
+          lastUpdated: Date.now(),
+        };
         this.currentState = stamped;
 
         if (stamped.flavors && stamped.flavors.length > 0) {
@@ -605,16 +820,37 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
           this.sseSource.close();
           this.sseSource = null;
         }
+        if (this.pollInterval) {
+          clearInterval(this.pollInterval);
+          this.pollInterval = null;
+        }
 
         const room = this.currentState.roomCode || DEFAULT_ROOM_CODE;
 
         // Conexión Server-Sent Events en tiempo real global
         try {
           const es = new EventSource(`https://ntfy.sh/${encodeURIComponent(room)}/sse`);
-          es.onmessage = (event) => {
+          es.onmessage = async (event) => {
             try {
               const payload = JSON.parse(event.data);
-              if (payload && payload.message) {
+              if (!payload) return;
+
+              // Caso 1: ntfy.sh convirtió el mensaje en attachment por exceder 4KB
+              if (payload.attachment && payload.attachment.url) {
+                try {
+                  const attRes = await fetch(payload.attachment.url);
+                  if (attRes.ok) {
+                    const parsed = await attRes.json();
+                    if (parsed && parsed.deviceId !== this.deviceId && parsed.state) {
+                      this.handleIncomingState(parsed.state, parsed.meta);
+                    }
+                  }
+                } catch (e) {}
+                return;
+              }
+
+              // Caso 2: Viene en message directo
+              if (payload.message && typeof payload.message === 'string' && payload.message.startsWith('{')) {
                 const parsed = JSON.parse(payload.message);
                 if (parsed && parsed.deviceId !== this.deviceId && parsed.state) {
                   this.handleIncomingState(parsed.state, parsed.meta);
@@ -625,8 +861,13 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
           this.sseSource = es;
         } catch (err) {}
 
-        // Traer el estado más reciente guardado en la nube
+        // Traer el estado más reciente guardado en la nube de inmediato
         this.fetchCloudState(room);
+
+        // Polling constante cada 4 segundos como seguro por si el teléfono bloquea pantalla
+        this.pollInterval = setInterval(() => {
+          this.fetchCloudState(room);
+        }, 4000);
       }
 
       initLocalServerSync() {
@@ -656,13 +897,29 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
           for (let i = lines.length - 1; i >= 0; i--) {
             try {
               const item = JSON.parse(lines[i]);
-              if (item && item.message) {
-                const parsed = JSON.parse(item.message);
-                if (parsed && parsed.state && parsed.state.lastUpdated) {
-                  if (parsed.state.lastUpdated > this.currentState.lastUpdated) {
-                    this.handleIncomingState(parsed.state, parsed.meta);
-                    break;
+              if (!item) continue;
+
+              // Caso attachment en historial
+              if (item.attachment && item.attachment.url) {
+                try {
+                  const attRes = await fetch(item.attachment.url);
+                  if (attRes.ok) {
+                    const parsed = await attRes.json();
+                    if (parsed && parsed.deviceId !== this.deviceId && parsed.state) {
+                      this.handleIncomingState(parsed.state, parsed.meta);
+                      break;
+                    }
                   }
+                } catch (e) {}
+                continue;
+              }
+
+              // Caso mensaje directo
+              if (item.message && typeof item.message === 'string' && item.message.startsWith('{')) {
+                const parsed = JSON.parse(item.message);
+                if (parsed && parsed.deviceId !== this.deviceId && parsed.state) {
+                  this.handleIncomingState(parsed.state, parsed.meta);
+                  break;
                 }
               }
             } catch (err) {}
@@ -684,11 +941,62 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
 
         const room = state.roomCode || DEFAULT_ROOM_CODE;
         try {
+          // Comprimir y sanear payload garantizando que los 10 sabores canónicos se envíen siempre
+          const completeFlavors =
+            Array.isArray(state.flavors) && state.flavors.length >= INITIAL_FLAVORS.length
+              ? state.flavors
+              : getSavedFlavors();
+
+          const leanFlavors = completeFlavors.map((f) => {
+            const base = INITIAL_FLAVORS.find((b) => b.id === f.id);
+            return {
+              id: f.id,
+              name: base?.name || f.name,
+              shortCode: f.shortCode,
+              color: f.color,
+              available: f.available,
+              emoji: f.emoji && f.emoji !== '??' ? f.emoji : base?.emoji || '🥐',
+              imageKey: f.imageKey || base?.imageKey || '',
+            };
+          });
+
+          const activeOrders = (state.orders || []).filter((o) => o.status !== 'despachado');
+          const recentDispatched = (state.orders || []).filter((o) => o.status === 'despachado').slice(-15);
+          const leanOrders = [...activeOrders, ...recentDispatched].map((o) => ({
+            id: o.id,
+            ticketNumber: o.ticketNumber,
+            customerOrTable: o.customerOrTable,
+            orderType: o.orderType,
+            note: o.note,
+            status: o.status,
+            createdAt: o.createdAt,
+            startedAt: o.startedAt,
+            dispatchedAt: o.dispatchedAt,
+            items: (o.items || []).map((it) => ({
+              flavorId: it.flavorId,
+              flavorName: it.flavorName,
+              quantity: it.quantity,
+              checked: it.checked,
+              color: it.color,
+            })),
+          }));
+
+          const leanState = {
+            version: state.version || 1,
+            roomCode: state.roomCode,
+            lastUpdated: state.lastUpdated,
+            nextTicketSeq: state.nextTicketSeq,
+            flavors: leanFlavors,
+            orders: leanOrders,
+            announcements: (state.announcements || []).slice(0, 6),
+          };
+
           const payload = JSON.stringify({
             deviceId: this.deviceId,
-            state,
+            state: leanState,
             meta,
           });
+
           await fetch(`https://ntfy.sh/${encodeURIComponent(room)}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -714,7 +1022,7 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
     // ============================================================================
     // 4. VISTA 1: EMISOR DE BARRA (/barra) - TOUCH ULTRA RÁPIDO CON FOTOS REALES
     // ============================================================================
-    function BarraView({ flavors, orders, nextTicketSeq, onCreateOrder }) {
+    function BarraView({ flavors, orders, nextTicketSeq, announcements = [], onCreateOrder }) {
       const formattedSeq = `#${String(nextTicketSeq).padStart(3, '0')}`;
       const [customTicket, setCustomTicket] = useState('');
       const [customerOrTable, setCustomerOrTable] = useState('');
@@ -722,6 +1030,7 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
       const [note, setNote] = useState('');
       const [cart, setCart] = useState({});
       const [flashSuccess, setFlashSuccess] = useState(null);
+      const [dismissedAnnId, setDismissedAnnId] = useState(null);
       const [now, setNow] = useState(Date.now());
 
       useEffect(() => {
@@ -821,10 +1130,74 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
         return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
       };
 
+      const activeAnn = (announcements || []).find(
+        (a) => a && a.id !== dismissedAnnId && now - a.createdAt < 20 * 60 * 1000
+      );
+
       return (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 p-3 md:p-5 max-w-[1650px] mx-auto">
           {/* TECLADO CON FOTO REAL DE CADA ROLLO */}
           <div className="lg:col-span-7 xl:col-span-8 flex flex-col gap-4">
+            {/* MARQUESINA / BANNER EN VIVO DE PANADERÍA */}
+            {activeAnn && (
+              <div
+                className={`rounded-2xl p-4 shadow-2xl border-2 flex items-center justify-between gap-3 animate-pulse transition-all ${
+                  activeAnn.type === 'batch_ready'
+                    ? 'bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 border-amber-300 text-white shadow-amber-500/25'
+                    : activeAnn.type === 'flavor_86'
+                    ? 'bg-gradient-to-r from-rose-700 via-red-600 to-rose-800 border-rose-300 text-white shadow-rose-500/25'
+                    : activeAnn.type === 'in_oven'
+                    ? 'bg-gradient-to-r from-sky-700 via-blue-600 to-indigo-700 border-sky-300 text-white shadow-sky-500/25'
+                    : 'bg-gradient-to-r from-slate-900 via-amber-950 to-slate-900 border-amber-400 text-amber-100'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-3xl md:text-4xl">
+                    {activeAnn.type === 'batch_ready'
+                      ? '🔥'
+                      : activeAnn.type === 'flavor_86'
+                      ? '🚫'
+                      : activeAnn.type === 'in_oven'
+                      ? '⏳'
+                      : '📢'}
+                  </span>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] md:text-xs font-black uppercase tracking-wider px-2 py-0.5 rounded bg-black/40 text-amber-200">
+                        {activeAnn.type === 'batch_ready'
+                          ? '🔥 Tanda Lista'
+                          : activeAnn.type === 'flavor_86'
+                          ? '🚫 Alerta Agotado'
+                          : activeAnn.type === 'in_oven'
+                          ? '⏳ En Horno'
+                          : '📢 Mensaje de Panadería'}
+                      </span>
+                      <span className="text-xs text-white/80">
+                        {new Date(activeAnn.createdAt).toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </span>
+                    </div>
+                    <p className="text-sm md:text-base font-black text-white mt-1 leading-tight">
+                      {activeAnn.text}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playTapSound(420);
+                    setDismissedAnnId(activeAnn.id);
+                  }}
+                  className="bg-black/60 hover:bg-black/80 text-white font-black px-3.5 py-2 rounded-xl text-xs uppercase tracking-wider shrink-0 transition-all border border-white/20 active:scale-95 shadow-md"
+                >
+                  Entendido ✓
+                </button>
+              </div>
+            )}
+
             <div className="flex flex-wrap items-center justify-between gap-2 bg-[#4a2e1b]/80 border border-amber-500/30 rounded-2xl px-4 py-3 shadow-md">
               <div className="flex items-center gap-2.5">
                 <span className="h-3 w-3 rounded-full bg-amber-400 animate-pulse" />
@@ -1274,18 +1647,76 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
     function PanaderiaView({
       flavors,
       orders,
+      announcements = [],
       onUpdateOrderStatus,
       onToggleOrderItemCheck,
       onToggleFlavorAvailability,
+      onCreateAnnouncement,
     }) {
       const [now, setNow] = useState(Date.now());
       const [discountCheckedItems, setDiscountCheckedItems] = useState(false);
       const [showRecentlyDispatched, setShowRecentlyDispatched] = useState(false);
 
+      // Estado para avisos y tandas de producción a Barra
+      const [showBroadcastModal, setShowBroadcastModal] = useState(false);
+      const [broadcastTab, setBroadcastTab] = useState('tanda'); // 'tanda' | 'horno' | '86' | 'mensaje'
+      const [selectedFlavorId, setSelectedFlavorId] = useState(flavors[0]?.id || 'flv-avellanas');
+      const [batchQty, setBatchQty] = useState(12);
+      const [ovenMinutes, setOvenMinutes] = useState(10);
+      const [customMsg, setCustomMsg] = useState('');
+      const [broadcastToast, setBroadcastToast] = useState(null);
+
       useEffect(() => {
         const t = setInterval(() => setNow(Date.now()), 1000);
         return () => clearInterval(t);
       }, []);
+
+      const handleSendBatchReady = () => {
+        const flv = flavors.find((f) => f.id === selectedFlavorId) || flavors[0];
+        if (onCreateAnnouncement) {
+          onCreateAnnouncement({
+            type: 'batch_ready',
+            flavorId: flv.id,
+            flavorName: flv.name,
+            quantity: batchQty,
+            text: `🔥 ¡TANDA LISTA! Salieron ${batchQty} rolls de ${flv.name} recién horneados`,
+          });
+        }
+        setBroadcastToast(`✅ Aviso enviado: Salieron ${batchQty} rolls de ${flv.name}`);
+        setTimeout(() => setBroadcastToast(null), 3500);
+        setShowBroadcastModal(false);
+      };
+
+      const handleSendInOven = () => {
+        const flv = flavors.find((f) => f.id === selectedFlavorId) || flavors[0];
+        if (onCreateAnnouncement) {
+          onCreateAnnouncement({
+            type: 'in_oven',
+            flavorId: flv.id,
+            flavorName: flv.name,
+            minutes: ovenMinutes,
+            text: `⏳ EN HORNO: Próxima tanda de ${flv.name} lista en ${ovenMinutes} min`,
+          });
+        }
+        setBroadcastToast(`✅ Aviso enviado: ${flv.name} en horno (${ovenMinutes} min)`);
+        setTimeout(() => setBroadcastToast(null), 3500);
+        setShowBroadcastModal(false);
+      };
+
+      const handleSendCustomMessage = (textToSend) => {
+        const finalMsg = textToSend || customMsg;
+        if (!finalMsg.trim()) return;
+        if (onCreateAnnouncement) {
+          onCreateAnnouncement({
+            type: 'quick_message',
+            text: `📢 MENSAJE DE COCINA: ${finalMsg.trim()}`,
+          });
+        }
+        setBroadcastToast(`✅ Mensaje enviado a Barra`);
+        setTimeout(() => setBroadcastToast(null), 3500);
+        setCustomMsg('');
+        setShowBroadcastModal(false);
+      };
 
       const activeOrders = [...orders]
         .filter((o) => o.status === 'pendiente' || o.status === 'preparando')
@@ -1377,8 +1808,26 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
                   >
                     ↩️ Historial ({dispatchedOrders.length})
                   </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      soundEngine.playTapSound(520);
+                      setShowBroadcastModal(true);
+                    }}
+                    className="px-3.5 py-1.5 rounded-xl font-black bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 shadow-lg shadow-orange-500/25 flex items-center gap-1.5 transition-all active:scale-95 animate-pulse"
+                  >
+                    <span>📢 Avisar a Barra</span>
+                  </button>
                 </div>
               </div>
+
+              {broadcastToast && (
+                <div className="mb-2 bg-emerald-500/20 border border-emerald-400 text-emerald-200 px-3.5 py-2 rounded-xl text-xs font-black flex items-center justify-between animate-bounce">
+                  <span>{broadcastToast}</span>
+                  <span className="text-[10px] uppercase tracking-wider text-emerald-400">Enviado a Barra</span>
+                </div>
+              )}
 
               {/* Grid de 10 Sabores */}
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5">
@@ -1737,6 +2186,368 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
               </div>
             )}
           </main>
+
+          {/* MODAL DE AVISOS Y TANDAS DE PANADERÍA A BARRA */}
+          {showBroadcastModal && (
+            <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-5">
+              <div className="bg-slate-900 border-2 border-amber-500/50 rounded-3xl max-w-2xl w-full max-h-[92vh] overflow-y-auto p-4 sm:p-6 shadow-2xl flex flex-col gap-4 text-white">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <div className="flex items-center gap-2.5">
+                    <span className="text-2xl">📢</span>
+                    <div>
+                      <h3 className="text-base sm:text-lg font-black uppercase text-amber-400">
+                        Avisos de Panadería a Barra
+                      </h3>
+                      <p className="text-xs text-slate-400">
+                        Notifica tandas listas, tiempo de horneado o sabores agotados en tiempo real
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowBroadcastModal(false)}
+                    className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold flex items-center justify-center"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Tabs */}
+                <div className="grid grid-cols-4 gap-1.5 bg-slate-950 p-1.5 rounded-2xl border border-slate-800 text-xs font-black">
+                  <button
+                    type="button"
+                    onClick={() => setBroadcastTab('tanda')}
+                    className={`py-2 px-1 rounded-xl text-center transition-all ${
+                      broadcastTab === 'tanda'
+                        ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 shadow'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    🔥 Tanda Lista
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBroadcastTab('horno')}
+                    className={`py-2 px-1 rounded-xl text-center transition-all ${
+                      broadcastTab === 'horno'
+                        ? 'bg-gradient-to-r from-sky-500 to-blue-500 text-slate-950 shadow'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    ⏳ En Horno
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBroadcastTab('86')}
+                    className={`py-2 px-1 rounded-xl text-center transition-all ${
+                      broadcastTab === '86'
+                        ? 'bg-gradient-to-r from-rose-600 to-red-600 text-white shadow'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    🚫 Agotados (86)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBroadcastTab('mensaje')}
+                    className={`py-2 px-1 rounded-xl text-center transition-all ${
+                      broadcastTab === 'mensaje'
+                        ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    💬 Mensaje
+                  </button>
+                </div>
+
+                {/* Contenido TAB 1: Tanda Lista */}
+                {broadcastTab === 'tanda' && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-black uppercase text-amber-300 mb-2">
+                        1. Toca el sabor que acaba de salir del horno:
+                      </label>
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 max-h-[220px] overflow-y-auto pr-1">
+                        {flavors.map((flv) => {
+                          const isSel = flv.id === selectedFlavorId;
+                          const imgSrc = getRollImage(flv);
+                          return (
+                            <button
+                              key={flv.id}
+                              type="button"
+                              onClick={() => setSelectedFlavorId(flv.id)}
+                              className={`p-2 rounded-2xl border-2 flex flex-col items-center text-center transition-all ${
+                                isSel
+                                  ? 'bg-[#5c3820] border-amber-400 shadow-lg scale-105'
+                                  : 'bg-slate-950/80 border-slate-800 hover:border-slate-700'
+                              }`}
+                            >
+                              {imgSrc ? (
+                                <img
+                                  src={imgSrc}
+                                  alt={flv.name}
+                                  className="w-12 h-12 rounded-full object-cover border border-amber-400/50 mb-1"
+                                />
+                              ) : (
+                                <span className="text-2xl mb-1">{flv.emoji}</span>
+                              )}
+                              <span className="text-[11px] font-black leading-tight truncate w-full text-white">
+                                {flv.name}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-black uppercase text-amber-300 mb-2">
+                        2. Cantidad de rolls recién horneados:
+                      </label>
+                      <div className="flex flex-wrap gap-2">
+                        {[6, 12, 18, 24, 30].map((qty) => (
+                          <button
+                            key={qty}
+                            type="button"
+                            onClick={() => setBatchQty(qty)}
+                            className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all ${
+                              batchQty === qty
+                                ? 'bg-amber-500 text-slate-950 shadow-md scale-105'
+                                : 'bg-slate-950 border border-slate-800 text-slate-300 hover:text-white'
+                            }`}
+                          >
+                            {qty === 30 ? '🔥 Tanda Completa (30)' : `${qty} rolls`}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs font-bold">
+                      Vista previa del aviso en Barra:
+                      <div className="mt-1 text-sm font-black text-amber-300">
+                        🔥 ¡TANDA LISTA! Salieron {batchQty} rolls de{' '}
+                        {flavors.find((f) => f.id === selectedFlavorId)?.name || ''} recién horneados
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleSendBatchReady}
+                      className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-base uppercase tracking-wide shadow-xl active:scale-95"
+                    >
+                      🚀 Disparar Aviso a Pantalla de Barra
+                    </button>
+                  </div>
+                )}
+
+                {/* Contenido TAB 2: En Horno */}
+                {broadcastTab === 'horno' && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-black uppercase text-sky-300 mb-2">
+                        1. Toca el sabor que está en el horno:
+                      </label>
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 max-h-[220px] overflow-y-auto pr-1">
+                        {flavors.map((flv) => {
+                          const isSel = flv.id === selectedFlavorId;
+                          const imgSrc = getRollImage(flv);
+                          return (
+                            <button
+                              key={flv.id}
+                              type="button"
+                              onClick={() => setSelectedFlavorId(flv.id)}
+                              className={`p-2 rounded-2xl border-2 flex flex-col items-center text-center transition-all ${
+                                isSel
+                                  ? 'bg-sky-950 border-sky-400 shadow-lg scale-105'
+                                  : 'bg-slate-950/80 border-slate-800 hover:border-slate-700'
+                              }`}
+                            >
+                              {imgSrc ? (
+                                <img
+                                  src={imgSrc}
+                                  alt={flv.name}
+                                  className="w-12 h-12 rounded-full object-cover border border-sky-400/50 mb-1"
+                                />
+                              ) : (
+                                <span className="text-2xl mb-1">{flv.emoji}</span>
+                              )}
+                              <span className="text-[11px] font-black leading-tight truncate w-full text-white">
+                                {flv.name}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-black uppercase text-sky-300 mb-2">
+                        2. Tiempo estimado para salir:
+                      </label>
+                      <div className="flex flex-wrap gap-2">
+                        {[5, 8, 10, 15, 20].map((mins) => (
+                          <button
+                            key={mins}
+                            type="button"
+                            onClick={() => setOvenMinutes(mins)}
+                            className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all ${
+                              ovenMinutes === mins
+                                ? 'bg-sky-500 text-slate-950 shadow-md scale-105'
+                                : 'bg-slate-950 border border-slate-800 text-slate-300 hover:text-white'
+                            }`}
+                          >
+                            ⏳ {mins} minutos
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-2xl bg-sky-500/10 border border-sky-500/30 text-sky-200 text-xs font-bold">
+                      Vista previa del aviso en Barra:
+                      <div className="mt-1 text-sm font-black text-sky-300">
+                        ⏳ EN HORNO: Próxima tanda de{' '}
+                        {flavors.find((f) => f.id === selectedFlavorId)?.name || ''} lista en{' '}
+                        {ovenMinutes} min
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleSendInOven}
+                      className="w-full py-4 rounded-2xl bg-gradient-to-r from-sky-500 via-blue-500 to-indigo-500 hover:from-sky-400 hover:to-blue-400 text-slate-950 font-black text-base uppercase tracking-wide shadow-xl active:scale-95"
+                    >
+                      🚀 Enviar Tiempo Estimado a Barra
+                    </button>
+                  </div>
+                )}
+
+                {/* Contenido TAB 3: Agotado (86) / Reabastecido */}
+                {broadcastTab === '86' && (
+                  <div className="space-y-3">
+                    <p className="text-xs text-slate-400">
+                      Al marcar un sabor como agotado, se bloquea al instante en la pantalla de Barra y suena una alarma para que no vendan más unidades.
+                    </p>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[380px] overflow-y-auto pr-1">
+                      {flavors.map((flv) => {
+                        const imgSrc = getRollImage(flv);
+                        return (
+                          <div
+                            key={flv.id}
+                            className={`p-3 rounded-2xl border-2 flex items-center justify-between gap-3 ${
+                              !flv.available
+                                ? 'bg-rose-950/40 border-rose-600/70'
+                                : 'bg-slate-950 border-slate-800'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              {imgSrc ? (
+                                <img
+                                  src={imgSrc}
+                                  alt={flv.name}
+                                  className="w-10 h-10 rounded-full object-cover border border-amber-400/40 shrink-0"
+                                />
+                              ) : (
+                                <span className="text-2xl">{flv.emoji}</span>
+                              )}
+                              <div className="min-w-0">
+                                <p className="text-xs font-black text-white truncate">{flv.name}</p>
+                                <span
+                                  className={`text-[10px] font-black uppercase px-1.5 py-0.5 rounded ${
+                                    flv.available
+                                      ? 'bg-emerald-500/20 text-emerald-400'
+                                      : 'bg-rose-500/30 text-rose-300'
+                                  }`}
+                                >
+                                  {flv.available ? 'En Vitrina' : 'AGOTADO (86)'}
+                                </span>
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onToggleFlavorAvailability(flv.id);
+                                setBroadcastToast(
+                                  flv.available
+                                    ? `🚫 ${flv.name} marcado como AGOTADO`
+                                    : `🟢 ${flv.name} marcado como DISPONIBLE`
+                                );
+                                setTimeout(() => setBroadcastToast(null), 3500);
+                              }}
+                              className={`px-3 py-2 rounded-xl text-xs font-black uppercase transition-all shrink-0 ${
+                                flv.available
+                                  ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-lg'
+                                  : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-lg'
+                              }`}
+                            >
+                              {flv.available ? '🚫 Marcar 86' : '🟢 Reabastecer'}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Contenido TAB 4: Mensaje Rápido */}
+                {broadcastTab === 'mensaje' && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-black uppercase text-purple-300 mb-2">
+                        Mensajes rápidos de 1 toque:
+                      </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {[
+                          '📦 Manden más bandejas a cocina',
+                          '⚠️ Cocina al límite, esperar 3 min',
+                          '☕ Preparando pedidos especiales',
+                          '✨ Todo al día y despachado',
+                          '📦 Cajas de empaque listas en mostrador',
+                          '🔥 Próximas tandas listas en 5 min',
+                        ].map((chip) => (
+                          <button
+                            key={chip}
+                            type="button"
+                            onClick={() => handleSendCustomMessage(chip)}
+                            className="p-3 rounded-2xl bg-slate-950 border border-slate-800 hover:border-purple-400 text-left text-xs font-black text-slate-200 hover:text-white transition-all active:scale-95"
+                          >
+                            {chip}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-black uppercase text-purple-300 mb-2">
+                        O escribe un mensaje personalizado:
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={customMsg}
+                          onChange={(e) => setCustomMsg(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleSendCustomMessage();
+                          }}
+                          placeholder="Ej. Esperen 4 min para el pedido de Carlos..."
+                          className="flex-1 h-12 bg-slate-950 border border-slate-800 focus:border-purple-400 rounded-2xl px-4 text-sm font-bold text-white outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleSendCustomMessage()}
+                          disabled={!customMsg.trim()}
+                          className="px-5 py-3 rounded-2xl bg-purple-600 hover:bg-purple-500 disabled:bg-slate-800 text-white font-black text-sm uppercase shadow-lg transition-all"
+                        >
+                          Enviar
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       );
     }
@@ -2506,6 +3317,14 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
               );
               setTimeout(() => setIncomingBanner(null), 4000);
             }
+          } else if (meta?.isNewAnnouncement && meta?.announcement) {
+            if (meta.announcement.type === 'flavor_86') {
+              soundEngine.play86Alert();
+            } else {
+              soundEngine.playAnnouncementSound();
+            }
+            setIncomingBanner(`📢 AVISO DE PANADERÍA: ${meta.announcement.text}`);
+            setTimeout(() => setIncomingBanner(null), 5000);
           }
         });
         return () => unsubscribe();
@@ -2584,15 +3403,75 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
         });
       };
 
+      const handleCreateAnnouncement = (annData) => {
+        const newAnn = {
+          id: `ann-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          type: annData.type,
+          flavorId: annData.flavorId || null,
+          flavorName: annData.flavorName || null,
+          quantity: annData.quantity || null,
+          minutes: annData.minutes || null,
+          text: annData.text || annData.message || '',
+          createdAt: Date.now(),
+        };
+
+        const existingAnnouncements = Array.isArray(state.announcements) ? state.announcements : [];
+        const nextAnnouncements = [newAnn, ...existingAnnouncements].slice(0, 20);
+
+        const nextState = {
+          ...state,
+          announcements: nextAnnouncements,
+          lastUpdated: Date.now(),
+        };
+
+        syncEngine.publishState(nextState, {
+          isNewAnnouncement: true,
+          announcement: newAnn,
+        });
+
+        soundEngine.playAnnouncementSound();
+      };
+
       const handleToggleFlavorAvailability = (flavorId) => {
+        const target = state.flavors.find((f) => f.id === flavorId);
+        const willBeAvailable = target ? !target.available : false;
+
         const updatedFlavors = state.flavors.map((f) =>
           f.id === flavorId ? { ...f, available: !f.available } : f
         );
-        syncEngine.publishState({
-          ...state,
-          flavors: updatedFlavors,
-          lastUpdated: Date.now(),
-        });
+
+        const newAnn = {
+          id: `ann-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          type: willBeAvailable ? 'flavor_restocked' : 'flavor_86',
+          flavorId: flavorId,
+          flavorName: target?.name || '',
+          text: willBeAvailable
+            ? `🟢 ${target?.name || 'Sabor'} DISPONIBLE — Panadería lo reactivó en vitrina`
+            : `🚫 ATENCIÓN BARRA: ${target?.name || 'Sabor'} AGOTADO (86). No vender más`,
+          createdAt: Date.now(),
+        };
+
+        const existingAnnouncements = Array.isArray(state.announcements) ? state.announcements : [];
+        const nextAnnouncements = [newAnn, ...existingAnnouncements].slice(0, 20);
+
+        if (!willBeAvailable) {
+          soundEngine.play86Alert();
+        } else {
+          soundEngine.playAnnouncementSound();
+        }
+
+        syncEngine.publishState(
+          {
+            ...state,
+            flavors: updatedFlavors,
+            announcements: nextAnnouncements,
+            lastUpdated: Date.now(),
+          },
+          {
+            isNewAnnouncement: true,
+            announcement: newAnn,
+          }
+        );
       };
 
       const handleSaveFlavors = (nextFlavors) => {
@@ -2779,6 +3658,7 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
                 flavors={state.flavors}
                 orders={state.orders}
                 nextTicketSeq={state.nextTicketSeq}
+                announcements={state.announcements || []}
                 onCreateOrder={handleCreateOrder}
               />
             )}
@@ -2787,9 +3667,11 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
               <PanaderiaView
                 flavors={state.flavors}
                 orders={state.orders}
+                announcements={state.announcements || []}
                 onUpdateOrderStatus={handleUpdateOrderStatus}
                 onToggleOrderItemCheck={handleToggleOrderItemCheck}
                 onToggleFlavorAvailability={handleToggleFlavorAvailability}
+                onCreateAnnouncement={handleCreateAnnouncement}
               />
             )}
 
@@ -2816,6 +3698,7 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
                     flavors={state.flavors}
                     orders={state.orders}
                     nextTicketSeq={state.nextTicketSeq}
+                    announcements={state.announcements || []}
                     onCreateOrder={handleCreateOrder}
                   />
                 </div>
@@ -2826,9 +3709,11 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
                   <PanaderiaView
                     flavors={state.flavors}
                     orders={state.orders}
+                    announcements={state.announcements || []}
                     onUpdateOrderStatus={handleUpdateOrderStatus}
                     onToggleOrderItemCheck={handleToggleOrderItemCheck}
                     onToggleFlavorAvailability={handleToggleFlavorAvailability}
+                    onCreateAnnouncement={handleCreateAnnouncement}
                   />
                 </div>
               </div>
