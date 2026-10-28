@@ -128,11 +128,18 @@ function mergeStates(current, incoming) {
   });
   const mergedFlavors = Array.from(flavorMap.values());
 
-  // Mezclar avisos de Panadería a Barra
+  // Mezclar avisos de Panadería a Barra respetando modCount (para edición de cantidad de tanda en vivo)
   const annMap = new Map();
-  [...(incoming.announcements || []), ...(current.announcements || [])].forEach((a) => {
+  (current.announcements || []).forEach((a) => {
     if (a && a.id) {
       annMap.set(a.id, a);
+    }
+  });
+  (incoming.announcements || []).forEach((incA) => {
+    if (!incA || !incA.id) return;
+    const locA = annMap.get(incA.id);
+    if (!locA || (incA.modCount || 1) >= (locA.modCount || 1)) {
+      annMap.set(incA.id, { ...(locA || {}), ...incA });
     }
   });
   const mergedAnnouncements = Array.from(annMap.values())

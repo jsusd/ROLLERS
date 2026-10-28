@@ -890,7 +890,7 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
         const mergedFlavors = ensureAllCanonicalFlavors(combinedList);
         saveFlavors(mergedFlavors);
 
-        // 3. MEZCLAR ANUNCIOS DE PRODUCCIÓN Y AVISOS DE PANADERÍA A BARRA
+        // 3. MEZCLAR ANUNCIOS DE PRODUCCIÓN Y AVISOS DE PANADERÍA A BARRA (Respetando modCount para cambios de cantidad en vivo)
         const incomingAnnouncements = Array.isArray(incoming.announcements)
           ? incoming.announcements
           : [];
@@ -899,9 +899,28 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
           : [];
         const localAnnIds = new Set(localAnnouncements.map((a) => a && a.id));
 
+        let hasAnnouncementChanges = false;
         const annMap = new Map();
-        [...incomingAnnouncements, ...localAnnouncements].forEach((a) => {
+        localAnnouncements.forEach((a) => {
           if (a && a.id) annMap.set(a.id, a);
+        });
+        incomingAnnouncements.forEach((incA) => {
+          if (!incA || !incA.id) return;
+          const locA = annMap.get(incA.id);
+          if (!locA) {
+            annMap.set(incA.id, incA);
+            hasAnnouncementChanges = true;
+          } else {
+            const incMod = incA.modCount || 1;
+            const locMod = locA.modCount || 1;
+            if (
+              incMod > locMod ||
+              (incMod === locMod && (incA.quantity !== locA.quantity || incA.text !== locA.text))
+            ) {
+              annMap.set(incA.id, { ...locA, ...incA, modCount: Math.max(incMod, locMod) });
+              hasAnnouncementChanges = true;
+            }
+          }
         });
         const mergedAnnouncements = Array.from(annMap.values())
           .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
@@ -931,6 +950,7 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
         if (
           !hasOrderChanges &&
           !hasFlavorChanges &&
+          !hasAnnouncementChanges &&
           !isNewAnnouncement &&
           nextSeq === this.currentState.nextTicketSeq &&
           mergedAnnouncements.length === localAnnouncements.length
@@ -1238,6 +1258,7 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
       announcements = [],
       onCreateOrder,
       onToggleOrderDelivered,
+      onUpdateAnnouncementQuantity,
     }) {
       const maxExistingNum = orders.reduce((max, o) => {
         const m = String(o.ticketNumber || '').match(/\d+/);
@@ -1374,9 +1395,11 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
             {/* MARQUESINA / BANNER EN VIVO DE PANADERÍA */}
             {activeAnn && (
               <div
-                className={`rounded-2xl p-4 shadow-2xl border-2 flex items-center justify-between gap-3 animate-pulse transition-all ${
+                className={`rounded-2xl p-4 shadow-2xl border-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all ${
                   activeAnn.type === 'batch_ready'
-                    ? 'bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 border-amber-300 text-white shadow-amber-500/25'
+                    ? activeAnn.isCustomizableFlavor || activeAnn.flavorId === 'SIN_SABOR'
+                      ? 'bg-gradient-to-r from-emerald-700 via-teal-600 to-amber-600 border-emerald-300 text-white shadow-emerald-500/25'
+                      : 'bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 border-amber-300 text-white shadow-amber-500/25'
                     : activeAnn.type === 'flavor_86'
                     ? 'bg-gradient-to-r from-rose-700 via-red-600 to-rose-800 border-rose-300 text-white shadow-rose-500/25'
                     : activeAnn.type === 'in_oven'
@@ -1384,9 +1407,11 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
                     : 'bg-gradient-to-r from-slate-900 via-amber-950 to-slate-900 border-amber-400 text-amber-100'
                 }`}
               >
-                <div className="flex items-center gap-3">
-                  <span className="text-3xl md:text-4xl">
-                    {activeAnn.type === 'batch_ready'
+                <div className="flex items-start sm:items-center gap-3">
+                  <span className="text-3xl md:text-4xl shrink-0">
+                    {activeAnn.isCustomizableFlavor || activeAnn.flavorId === 'SIN_SABOR'
+                      ? '🥐'
+                      : activeAnn.type === 'batch_ready'
                       ? '🔥'
                       : activeAnn.type === 'flavor_86'
                       ? '🚫'
@@ -1395,16 +1420,23 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
                       : '📢'}
                   </span>
                   <div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="text-[10px] md:text-xs font-black uppercase tracking-wider px-2 py-0.5 rounded bg-black/40 text-amber-200">
                         {activeAnn.type === 'batch_ready'
-                          ? '🔥 Tanda Lista'
+                          ? activeAnn.isCustomizableFlavor || activeAnn.flavorId === 'SIN_SABOR'
+                            ? '🥐 Tanda Base Sin Sabor'
+                            : '🔥 Tanda Lista'
                           : activeAnn.type === 'flavor_86'
                           ? '🚫 Alerta Agotado'
                           : activeAnn.type === 'in_oven'
                           ? '⏳ En Horno'
                           : '📢 Mensaje de Panadería'}
                       </span>
+                      {(activeAnn.isCustomizableFlavor || activeAnn.flavorId === 'SIN_SABOR') && (
+                        <span className="text-[10px] md:text-xs font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-white text-slate-950 shadow">
+                          🎨 SE PUEDE MODIFICAR EL SABOR
+                        </span>
+                      )}
                       <span className="text-xs text-white/80">
                         {new Date(activeAnn.createdAt).toLocaleTimeString([], {
                           hour: '2-digit',
@@ -1418,16 +1450,63 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    soundEngine.playTapSound(420);
-                    setDismissedAnnId(activeAnn.id);
-                  }}
-                  className="bg-black/60 hover:bg-black/80 text-white font-black px-3.5 py-2 rounded-xl text-xs uppercase tracking-wider shrink-0 transition-all border border-white/20 active:scale-95 shadow-md"
-                >
-                  Entendido ✓
-                </button>
+                <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                  {typeof activeAnn.quantity === 'number' && onUpdateAnnouncementQuantity && (
+                    <div className="flex items-center gap-1 bg-black/50 border border-white/25 rounded-xl px-2 py-1">
+                      <span className="text-[10px] font-extrabold uppercase text-amber-200 mr-1">
+                        Cant:
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          soundEngine.playTapSound(380);
+                          onUpdateAnnouncementQuantity(
+                            activeAnn.id,
+                            Math.max(0, (activeAnn.quantity || 0) - 1)
+                          );
+                        }}
+                        className="w-7 h-7 rounded-lg bg-slate-900/90 hover:bg-slate-800 text-white font-black text-sm flex items-center justify-center active:scale-90"
+                        title="Descontar 1 unidad de la tanda"
+                      >
+                        −
+                      </button>
+                      <input
+                        type="number"
+                        min="0"
+                        max="500"
+                        value={activeAnn.quantity}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value, 10);
+                          onUpdateAnnouncementQuantity(activeAnn.id, isNaN(val) ? 0 : val);
+                        }}
+                        className="w-12 h-7 rounded-lg bg-slate-950/90 border border-amber-400/50 text-center text-white font-black text-xs focus:outline-none"
+                        title="Modificar cantidad de la tanda"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          soundEngine.playTapSound(580);
+                          onUpdateAnnouncementQuantity(activeAnn.id, (activeAnn.quantity || 0) + 1);
+                        }}
+                        className="w-7 h-7 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-sm flex items-center justify-center active:scale-90"
+                        title="Sumar 1 unidad a la tanda"
+                      >
+                        +
+                      </button>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      soundEngine.playTapSound(420);
+                      setDismissedAnnId(activeAnn.id);
+                    }}
+                    className="bg-black/60 hover:bg-black/80 text-white font-black px-3.5 py-2 rounded-xl text-xs uppercase tracking-wider shrink-0 transition-all border border-white/20 active:scale-95 shadow-md"
+                  >
+                    Entendido ✓
+                  </button>
+                </div>
               </div>
             )}
 
@@ -2013,19 +2092,57 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
                   <span className="block text-[10px] font-black uppercase tracking-wider text-amber-400 mb-2">
                     📢 Últimos Avisos de Producción (Panadería):
                   </span>
-                  <div className="space-y-1.5 max-h-[120px] overflow-y-auto">
+                  <div className="space-y-1.5 max-h-[145px] overflow-y-auto">
                     {announcements.slice(0, 4).map((a) => (
                       <div
                         key={a.id}
                         className="text-[11px] font-bold bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-2 text-slate-200"
                       >
-                        <span className="truncate">{a.text}</span>
-                        <span className="text-[10px] text-slate-400 shrink-0">
-                          {new Date(a.createdAt).toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </span>
+                        <div className="min-w-0 flex-1">
+                          {(a.isCustomizableFlavor || a.flavorId === 'SIN_SABOR') && (
+                            <span className="inline-block mr-1.5 text-[9px] font-black uppercase px-1.5 py-0.2 rounded bg-emerald-500 text-slate-950">
+                              🎨 Sabor Modificable
+                            </span>
+                          )}
+                          <span className="truncate">{a.text}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {typeof a.quantity === 'number' && onUpdateAnnouncementQuantity && (
+                            <div className="flex items-center gap-1 bg-slate-900 border border-slate-700 rounded-md px-1 py-0.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  soundEngine.playTapSound(380);
+                                  onUpdateAnnouncementQuantity(a.id, Math.max(0, (a.quantity || 0) - 1));
+                                }}
+                                className="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 text-white font-black text-xs flex items-center justify-center"
+                                title="Restar 1"
+                              >
+                                −
+                              </button>
+                              <span className="text-[11px] font-black text-amber-400 px-1 tabular-nums">
+                                {a.quantity}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  soundEngine.playTapSound(580);
+                                  onUpdateAnnouncementQuantity(a.id, (a.quantity || 0) + 1);
+                                }}
+                                className="w-5 h-5 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center justify-center"
+                                title="Sumar 1"
+                              >
+                                +
+                              </button>
+                            </div>
+                          )}
+                          <span className="text-[10px] text-slate-400">
+                            {new Date(a.createdAt).toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </span>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -2048,15 +2165,17 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
       onToggleOrderItemCheck,
       onToggleFlavorAvailability,
       onCreateAnnouncement,
+      onUpdateAnnouncementQuantity,
     }) {
       const [now, setNow] = useState(Date.now());
       const [discountCheckedItems, setDiscountCheckedItems] = useState(false);
       const [showRecentlyDispatched, setShowRecentlyDispatched] = useState(false);
 
       // Estado para avisos y tandas de producción a Barra
+      // 'SIN_SABOR' permite avisar a Mesa, Caja y Barra que salió una tanda base cuyo sabor se puede modificar
       const [showBroadcastModal, setShowBroadcastModal] = useState(false);
       const [broadcastTab, setBroadcastTab] = useState('tanda'); // 'tanda' | 'horno' | '86' | 'mensaje'
-      const [selectedFlavorId, setSelectedFlavorId] = useState(flavors[0]?.id || 'flv-avellanas');
+      const [selectedFlavorId, setSelectedFlavorId] = useState('SIN_SABOR');
       const [batchQty, setBatchQty] = useState(12);
       const [ovenMinutes, setOvenMinutes] = useState(10);
       const [customMsg, setCustomMsg] = useState('');
@@ -2068,33 +2187,62 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
       }, []);
 
       const handleSendBatchReady = () => {
-        const flv = flavors.find((f) => f.id === selectedFlavorId) || flavors[0];
+        const safeQty = Math.max(1, parseInt(batchQty, 10) || 1);
+        const isSinSabor = selectedFlavorId === 'SIN_SABOR';
+        const flv = isSinSabor
+          ? { id: 'SIN_SABOR', name: 'SIN SABOR (Sabor Modificable)' }
+          : flavors.find((f) => f.id === selectedFlavorId) || flavors[0];
+
         if (onCreateAnnouncement) {
           onCreateAnnouncement({
             type: 'batch_ready',
             flavorId: flv.id,
             flavorName: flv.name,
-            quantity: batchQty,
-            text: `🔥 ¡TANDA LISTA! Salieron ${batchQty} rolls de ${flv.name} recién horneados`,
+            isCustomizableFlavor: isSinSabor,
+            quantity: safeQty,
+            initialQuantity: safeQty,
+            modCount: 1,
+            text: isSinSabor
+              ? `🔥 ¡TANDA SIN SABOR LISTA! Salieron ${safeQty} rolls base — SE PUEDE MODIFICAR EL SABOR`
+              : `🔥 ¡TANDA LISTA! Salieron ${safeQty} rolls de ${flv.name} recién horneados`,
           });
         }
-        setBroadcastToast(`✅ Aviso enviado: Salieron ${batchQty} rolls de ${flv.name}`);
+        setBroadcastToast(
+          isSinSabor
+            ? `✅ Aviso enviado: Salieron ${safeQty} rolls SIN SABOR (Sabor Modificable)`
+            : `✅ Aviso enviado: Salieron ${safeQty} rolls de ${flv.name}`
+        );
         setTimeout(() => setBroadcastToast(null), 3500);
         setShowBroadcastModal(false);
       };
 
       const handleSendInOven = () => {
-        const flv = flavors.find((f) => f.id === selectedFlavorId) || flavors[0];
+        const safeQty = Math.max(1, parseInt(batchQty, 10) || 1);
+        const isSinSabor = selectedFlavorId === 'SIN_SABOR';
+        const flv = isSinSabor
+          ? { id: 'SIN_SABOR', name: 'SIN SABOR (Sabor Modificable)' }
+          : flavors.find((f) => f.id === selectedFlavorId) || flavors[0];
+
         if (onCreateAnnouncement) {
           onCreateAnnouncement({
             type: 'in_oven',
             flavorId: flv.id,
             flavorName: flv.name,
+            isCustomizableFlavor: isSinSabor,
+            quantity: safeQty,
+            initialQuantity: safeQty,
             minutes: ovenMinutes,
-            text: `⏳ EN HORNO: Próxima tanda de ${flv.name} lista en ${ovenMinutes} min`,
+            modCount: 1,
+            text: isSinSabor
+              ? `⏳ EN HORNO: Próxima tanda de ${safeQty} rolls SIN SABOR (Sabor Modificable) lista en ${ovenMinutes} min`
+              : `⏳ EN HORNO: Próxima tanda de ${safeQty} rolls de ${flv.name} lista en ${ovenMinutes} min`,
           });
         }
-        setBroadcastToast(`✅ Aviso enviado: ${flv.name} en horno (${ovenMinutes} min)`);
+        setBroadcastToast(
+          isSinSabor
+            ? `✅ Aviso enviado: ${safeQty} rolls SIN SABOR en horno (${ovenMinutes} min)`
+            : `✅ Aviso enviado: ${safeQty} rolls de ${flv.name} en horno (${ovenMinutes} min)`
+        );
         setTimeout(() => setBroadcastToast(null), 3500);
         setShowBroadcastModal(false);
       };
@@ -2656,14 +2804,116 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
                   </button>
                 </div>
 
+                {/* Control rápido si ya hay una tanda anunciada para modificar su cantidad en vivo */}
+                {(() => {
+                  const latestBatchAnn = (announcements || []).find(
+                    (a) => a && typeof a.quantity === 'number' && Date.now() - a.createdAt < 30 * 60 * 1000
+                  );
+                  if (!latestBatchAnn || !onUpdateAnnouncementQuantity) return null;
+                  return (
+                    <div className="bg-slate-950/90 border border-emerald-500/40 rounded-2xl p-3 flex flex-wrap items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <span className="text-[10px] font-black uppercase text-emerald-400 block">
+                          ✏️ Tanda Activa en Barra (Modificar cantidad disponible en vivo):
+                        </span>
+                        <span className="text-xs font-bold text-slate-200 truncate block">
+                          {latestBatchAnn.text}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-700 rounded-xl px-2 py-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            soundEngine.playTapSound(380);
+                            onUpdateAnnouncementQuantity(
+                              latestBatchAnn.id,
+                              Math.max(0, (latestBatchAnn.quantity || 0) - 1)
+                            );
+                          }}
+                          className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-black text-base flex items-center justify-center active:scale-90"
+                        >
+                          −
+                        </button>
+                        <input
+                          type="number"
+                          min="0"
+                          max="500"
+                          value={latestBatchAnn.quantity}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value, 10);
+                            onUpdateAnnouncementQuantity(latestBatchAnn.id, isNaN(val) ? 0 : val);
+                          }}
+                          className="w-14 h-8 rounded-lg bg-slate-950 border border-emerald-500/50 text-center text-emerald-300 font-black text-sm focus:outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            soundEngine.playTapSound(580);
+                            onUpdateAnnouncementQuantity(
+                              latestBatchAnn.id,
+                              (latestBatchAnn.quantity || 0) + 1
+                            );
+                          }}
+                          className="w-8 h-8 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-base flex items-center justify-center active:scale-90"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* Contenido TAB 1: Tanda Lista */}
                 {broadcastTab === 'tanda' && (
                   <div className="space-y-4">
                     <div>
                       <label className="block text-xs font-black uppercase text-amber-300 mb-2">
-                        1. Toca el sabor que acaba de salir del horno:
+                        1. Selecciona si la tanda es SIN SABOR (Modificable) o de un sabor fijo:
                       </label>
-                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 max-h-[220px] overflow-y-auto pr-1">
+
+                      {/* Opción Destacada: TANDA SIN SABOR (SE PUEDE MODIFICAR EL SABOR) */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          soundEngine.playTapSound(540);
+                          setSelectedFlavorId('SIN_SABOR');
+                        }}
+                        className={`w-full mb-2.5 p-3 rounded-2xl border-2 flex items-center justify-between gap-3 text-left transition-all ${
+                          selectedFlavorId === 'SIN_SABOR'
+                            ? 'bg-gradient-to-r from-emerald-900/90 via-teal-900/80 to-amber-900/80 border-emerald-400 shadow-lg shadow-emerald-500/20 scale-[1.01]'
+                            : 'bg-slate-950/90 border-slate-800 hover:border-emerald-500/50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="w-12 h-12 rounded-full bg-emerald-500/20 border-2 border-emerald-400 flex items-center justify-center text-2xl shrink-0">
+                            🥐
+                          </span>
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-black uppercase text-white">
+                                SIN SABOR (Tanda Base — Sabor Modificable)
+                              </span>
+                              <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-400 text-slate-950">
+                                🎨 Se puede modificar el sabor
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-emerald-200/90 mt-0.5">
+                              Avisa al personal de Mesa, Caja y Barra que salió una tanda base lista para personalizar con cualquier sabor.
+                            </p>
+                          </div>
+                        </div>
+                        <span
+                          className={`w-6 h-6 rounded-full border-2 flex items-center justify-center text-xs font-black shrink-0 ${
+                            selectedFlavorId === 'SIN_SABOR'
+                              ? 'bg-emerald-400 border-emerald-200 text-slate-950'
+                              : 'border-slate-600 text-transparent'
+                          }`}
+                        >
+                          ✓
+                        </span>
+                      </button>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 max-h-[200px] overflow-y-auto pr-1">
                         {flavors.map((flv) => {
                           const isSel = flv.id === selectedFlavorId;
                           const imgSrc = getRollImage(flv);
@@ -2682,7 +2932,7 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
                                 <img
                                   src={imgSrc}
                                   alt={flv.name}
-                                  className="w-12 h-12 rounded-full object-cover border border-amber-400/50 mb-1"
+                                  className="w-11 h-11 rounded-full object-cover border border-amber-400/50 mb-1"
                                 />
                               ) : (
                                 <span className="text-2xl mb-1">{flv.emoji}</span>
@@ -2698,31 +2948,104 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
 
                     <div>
                       <label className="block text-xs font-black uppercase text-amber-300 mb-2">
-                        2. Cantidad de rolls recién horneados:
+                        2. Cantidad de rolls de la tanda (escribe o ajusta libremente):
                       </label>
-                      <div className="flex flex-wrap gap-2">
-                        {[6, 12, 18, 24, 30].map((qty) => (
+
+                      <div className="flex flex-wrap items-center gap-2 mb-2.5 bg-slate-950 p-2.5 rounded-2xl border border-slate-800">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            soundEngine.playTapSound(360);
+                            setBatchQty((q) => Math.max(1, (parseInt(q, 10) || 1) - 5));
+                          }}
+                          className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-rose-300 font-black text-xs active:scale-95"
+                        >
+                          −5
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            soundEngine.playTapSound(380);
+                            setBatchQty((q) => Math.max(1, (parseInt(q, 10) || 1) - 1));
+                          }}
+                          className="w-10 h-10 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-white font-black text-lg flex items-center justify-center active:scale-95"
+                        >
+                          −
+                        </button>
+
+                        <div className="flex items-center gap-1.5 bg-slate-900 border-2 border-amber-500/60 rounded-xl px-3 py-1">
+                          <input
+                            type="number"
+                            min="1"
+                            max="500"
+                            value={batchQty}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              if (raw === '') {
+                                setBatchQty('');
+                              } else {
+                                const n = parseInt(raw, 10);
+                                if (!isNaN(n)) setBatchQty(Math.max(1, Math.min(500, n)));
+                              }
+                            }}
+                            className="w-16 bg-transparent text-center text-xl font-black text-amber-400 focus:outline-none tabular-nums"
+                          />
+                          <span className="text-xs font-extrabold uppercase text-slate-400">
+                            rolls
+                          </span>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            soundEngine.playTapSound(580);
+                            setBatchQty((q) => Math.min(500, (parseInt(q, 10) || 0) + 1));
+                          }}
+                          className="w-10 h-10 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-lg flex items-center justify-center active:scale-95"
+                        >
+                          +
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            soundEngine.playTapSound(620);
+                            setBatchQty((q) => Math.min(500, (parseInt(q, 10) || 0) + 5));
+                          }}
+                          className="px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-black text-xs active:scale-95"
+                        >
+                          +5
+                        </button>
+                      </div>
+
+                      <div className="flex flex-wrap gap-1.5">
+                        {[4, 6, 8, 10, 12, 15, 18, 24, 30].map((qty) => (
                           <button
                             key={qty}
                             type="button"
-                            onClick={() => setBatchQty(qty)}
-                            className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all ${
-                              batchQty === qty
+                            onClick={() => {
+                              soundEngine.playTapSound(500);
+                              setBatchQty(qty);
+                            }}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
+                               Number(batchQty) === qty
                                 ? 'bg-amber-500 text-slate-950 shadow-md scale-105'
                                 : 'bg-slate-950 border border-slate-800 text-slate-300 hover:text-white'
                             }`}
                           >
-                            {qty === 30 ? '🔥 Tanda Completa (30)' : `${qty} rolls`}
+                            {qty === 30 ? '🔥 30 (Tanda)' : `${qty} uds`}
                           </button>
                         ))}
                       </div>
                     </div>
 
                     <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs font-bold">
-                      Vista previa del aviso en Barra:
+                      Vista previa del aviso en Mesa, Caja y Barra:
                       <div className="mt-1 text-sm font-black text-amber-300">
-                        🔥 ¡TANDA LISTA! Salieron {batchQty} rolls de{' '}
-                        {flavors.find((f) => f.id === selectedFlavorId)?.name || ''} recién horneados
+                        {selectedFlavorId === 'SIN_SABOR'
+                          ? `🔥 ¡TANDA SIN SABOR LISTA! Salieron ${Math.max(1, parseInt(batchQty, 10) || 1)} rolls base — SE PUEDE MODIFICAR EL SABOR`
+                          : `🔥 ¡TANDA LISTA! Salieron ${Math.max(1, parseInt(batchQty, 10) || 1)} rolls de ${
+                              flavors.find((f) => f.id === selectedFlavorId)?.name || ''
+                            } recién horneados`}
                       </div>
                     </div>
 
@@ -2731,7 +3054,7 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
                       onClick={handleSendBatchReady}
                       className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-base uppercase tracking-wide shadow-xl active:scale-95"
                     >
-                      🚀 Disparar Aviso a Pantalla de Barra
+                      🚀 Disparar Aviso a Mesa, Caja y Barra
                     </button>
                   </div>
                 )}
@@ -2741,9 +3064,47 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
                   <div className="space-y-4">
                     <div>
                       <label className="block text-xs font-black uppercase text-sky-300 mb-2">
-                        1. Toca el sabor que está en el horno:
+                        1. Selecciona qué tanda está en el horno:
                       </label>
-                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 max-h-[220px] overflow-y-auto pr-1">
+
+                      {/* Opción Destacada: TANDA SIN SABOR EN HORNO */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          soundEngine.playTapSound(540);
+                          setSelectedFlavorId('SIN_SABOR');
+                        }}
+                        className={`w-full mb-2.5 p-3 rounded-2xl border-2 flex items-center justify-between gap-3 text-left transition-all ${
+                          selectedFlavorId === 'SIN_SABOR'
+                            ? 'bg-sky-950 border-sky-400 shadow-lg scale-[1.01]'
+                            : 'bg-slate-950/90 border-slate-800 hover:border-sky-500/50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="w-11 h-11 rounded-full bg-sky-500/20 border-2 border-sky-400 flex items-center justify-center text-2xl shrink-0">
+                            🥐
+                          </span>
+                          <div>
+                            <span className="text-sm font-black uppercase text-white block">
+                              SIN SABOR (Tanda Base — Sabor Modificable)
+                            </span>
+                            <span className="text-[11px] text-sky-200/90">
+                              Saldrá lista para rellenar/modificar con cualquier sabor
+                            </span>
+                          </div>
+                        </div>
+                        <span
+                          className={`w-6 h-6 rounded-full border-2 flex items-center justify-center text-xs font-black shrink-0 ${
+                            selectedFlavorId === 'SIN_SABOR'
+                              ? 'bg-sky-400 border-sky-200 text-slate-950'
+                              : 'border-slate-600 text-transparent'
+                          }`}
+                        >
+                          ✓
+                        </span>
+                      </button>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 max-h-[190px] overflow-y-auto pr-1">
                         {flavors.map((flv) => {
                           const isSel = flv.id === selectedFlavorId;
                           const imgSrc = getRollImage(flv);
@@ -2762,7 +3123,7 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
                                 <img
                                   src={imgSrc}
                                   alt={flv.name}
-                                  className="w-12 h-12 rounded-full object-cover border border-sky-400/50 mb-1"
+                                  className="w-11 h-11 rounded-full object-cover border border-sky-400/50 mb-1"
                                 />
                               ) : (
                                 <span className="text-2xl mb-1">{flv.emoji}</span>
@@ -2776,34 +3137,80 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
                       </div>
                     </div>
 
-                    <div>
-                      <label className="block text-xs font-black uppercase text-sky-300 mb-2">
-                        2. Tiempo estimado para salir:
-                      </label>
-                      <div className="flex flex-wrap gap-2">
-                        {[5, 8, 10, 15, 20].map((mins) => (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-black uppercase text-sky-300 mb-2">
+                          2. Cantidad en el horno (modificable):
+                        </label>
+                        <div className="flex items-center gap-2 bg-slate-950 p-2 rounded-2xl border border-slate-800">
                           <button
-                            key={mins}
                             type="button"
-                            onClick={() => setOvenMinutes(mins)}
-                            className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all ${
-                              ovenMinutes === mins
-                                ? 'bg-sky-500 text-slate-950 shadow-md scale-105'
-                                : 'bg-slate-950 border border-slate-800 text-slate-300 hover:text-white'
-                            }`}
+                            onClick={() =>
+                              setBatchQty((q) => Math.max(1, (parseInt(q, 10) || 1) - 1))
+                            }
+                            className="w-9 h-9 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-white font-black text-base"
                           >
-                            ⏳ {mins} minutos
+                            −
                           </button>
-                        ))}
+                          <input
+                            type="number"
+                            min="1"
+                            max="500"
+                            value={batchQty}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              if (raw === '') setBatchQty('');
+                              else {
+                                const n = parseInt(raw, 10);
+                                if (!isNaN(n)) setBatchQty(Math.max(1, Math.min(500, n)));
+                              }
+                            }}
+                            className="w-16 bg-slate-900 border border-sky-500/50 rounded-xl py-1 text-center text-lg font-black text-sky-300 focus:outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setBatchQty((q) => Math.min(500, (parseInt(q, 10) || 0) + 1))
+                            }
+                            className="w-9 h-9 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-black text-base"
+                          >
+                            +
+                          </button>
+                          <span className="text-xs font-bold text-slate-400">rolls</span>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-black uppercase text-sky-300 mb-2">
+                          3. Tiempo estimado para salir:
+                        </label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {[5, 8, 10, 15, 20].map((mins) => (
+                            <button
+                              key={mins}
+                              type="button"
+                              onClick={() => setOvenMinutes(mins)}
+                              className={`px-3 py-2 rounded-xl text-xs font-black transition-all ${
+                                ovenMinutes === mins
+                                  ? 'bg-sky-500 text-slate-950 shadow-md scale-105'
+                                  : 'bg-slate-950 border border-slate-800 text-slate-300 hover:text-white'
+                              }`}
+                            >
+                              ⏳ {mins} min
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     </div>
 
                     <div className="p-3 rounded-2xl bg-sky-500/10 border border-sky-500/30 text-sky-200 text-xs font-bold">
                       Vista previa del aviso en Barra:
                       <div className="mt-1 text-sm font-black text-sky-300">
-                        ⏳ EN HORNO: Próxima tanda de{' '}
-                        {flavors.find((f) => f.id === selectedFlavorId)?.name || ''} lista en{' '}
-                        {ovenMinutes} min
+                        {selectedFlavorId === 'SIN_SABOR'
+                          ? `⏳ EN HORNO: Próxima tanda de ${Math.max(1, parseInt(batchQty, 10) || 1)} rolls SIN SABOR (Sabor Modificable) lista en ${ovenMinutes} min`
+                          : `⏳ EN HORNO: Próxima tanda de ${Math.max(1, parseInt(batchQty, 10) || 1)} rolls de ${
+                              flavors.find((f) => f.id === selectedFlavorId)?.name || ''
+                            } lista en ${ovenMinutes} min`}
                       </div>
                     </div>
 
@@ -3858,8 +4265,11 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
           type: annData.type,
           flavorId: annData.flavorId || null,
           flavorName: annData.flavorName || null,
-          quantity: annData.quantity || null,
+          isCustomizableFlavor: Boolean(annData.isCustomizableFlavor || annData.flavorId === 'SIN_SABOR'),
+          quantity: typeof annData.quantity === 'number' ? annData.quantity : null,
+          initialQuantity: typeof annData.quantity === 'number' ? annData.quantity : null,
           minutes: annData.minutes || null,
+          modCount: 1,
           text: annData.text || annData.message || '',
           createdAt: Date.now(),
         };
@@ -3879,6 +4289,48 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
         });
 
         soundEngine.playAnnouncementSound();
+      };
+
+      const handleUpdateAnnouncementQuantity = (annId, nextQty) => {
+        const cleanQty = Math.max(0, Math.min(500, parseInt(nextQty, 10) || 0));
+        const existingAnnouncements = Array.isArray(state.announcements) ? state.announcements : [];
+        const updatedAnnouncements = existingAnnouncements.map((a) => {
+          if (!a || a.id !== annId) return a;
+          const isSinSabor = Boolean(a.isCustomizableFlavor || a.flavorId === 'SIN_SABOR');
+          let nextText = a.text;
+
+          if (a.type === 'batch_ready') {
+            if (cleanQty === 0) {
+              nextText = isSinSabor
+                ? '🚫 Tanda SIN SABOR agotada (0 disponibles)'
+                : `🚫 Tanda de ${a.flavorName || 'rolls'} agotada (0 disponibles)`;
+            } else if (isSinSabor) {
+              nextText = `🔥 ¡TANDA SIN SABOR LISTA! Salieron ${cleanQty} rolls base — SE PUEDE MODIFICAR EL SABOR`;
+            } else {
+              nextText = `🔥 ¡TANDA LISTA! Salieron ${cleanQty} rolls de ${a.flavorName || ''} recién horneados`;
+            }
+          } else if (a.type === 'in_oven') {
+            if (isSinSabor) {
+              nextText = `⏳ EN HORNO: Próxima tanda de ${cleanQty} rolls SIN SABOR (Sabor Modificable) lista en ${a.minutes || 10} min`;
+            } else {
+              nextText = `⏳ EN HORNO: Próxima tanda de ${cleanQty} rolls de ${a.flavorName || ''} lista en ${a.minutes || 10} min`;
+            }
+          }
+
+          return {
+            ...a,
+            quantity: cleanQty,
+            text: nextText,
+            modCount: (a.modCount || 1) + 1,
+            updatedAt: Date.now(),
+          };
+        });
+
+        syncEngine.publishState({
+          ...state,
+          announcements: updatedAnnouncements,
+          lastUpdated: Date.now(),
+        });
       };
 
       const handleToggleFlavorAvailability = (flavorId) => {
@@ -4140,6 +4592,7 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
                 announcements={state.announcements || []}
                 onCreateOrder={handleCreateOrder}
                 onToggleOrderDelivered={handleToggleOrderDelivered}
+                onUpdateAnnouncementQuantity={handleUpdateAnnouncementQuantity}
               />
             )}
 
@@ -4152,6 +4605,7 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
                 onToggleOrderItemCheck={handleToggleOrderItemCheck}
                 onToggleFlavorAvailability={handleToggleFlavorAvailability}
                 onCreateAnnouncement={handleCreateAnnouncement}
+                onUpdateAnnouncementQuantity={handleUpdateAnnouncementQuantity}
               />
             )}
 
@@ -4181,6 +4635,7 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
                     announcements={state.announcements || []}
                     onCreateOrder={handleCreateOrder}
                     onToggleOrderDelivered={handleToggleOrderDelivered}
+                    onUpdateAnnouncementQuantity={handleUpdateAnnouncementQuantity}
                   />
                 </div>
                 <div className="xl:col-span-7 bg-slate-950">
@@ -4195,6 +4650,7 @@ window.BULL_MARKET_ROLL_IMAGES = {"cinnamon":"data:image/png;base64,iVBORw0KGgoA
                     onToggleOrderItemCheck={handleToggleOrderItemCheck}
                     onToggleFlavorAvailability={handleToggleFlavorAvailability}
                     onCreateAnnouncement={handleCreateAnnouncement}
+                    onUpdateAnnouncementQuantity={handleUpdateAnnouncementQuantity}
                   />
                 </div>
               </div>
