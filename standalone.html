@@ -1,0 +1,2813 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Bull Market — POS Barra & KDS Panadería en Tiempo Real</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+          },
+        },
+      },
+    };
+  </script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Mapa de fotos circulares de New York Rolls en Base64 para carga instantánea y offline -->
+  <script src="assets/roll_images_b64.js"></script>
+  <style>
+    body {
+      background-color: #020617;
+      color: #f8fafc;
+      -webkit-tap-highlight-color: transparent;
+      overflow-x: hidden;
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 9999px;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 antialiased selection:bg-amber-500 selection:text-slate-950">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useMemo } = React;
+
+    // Helper para obtener la foto real del New York Roll
+    function getRollImage(flavor) {
+      if (window.BULL_MARKET_ROLL_IMAGES && flavor.imageKey && window.BULL_MARKET_ROLL_IMAGES[flavor.imageKey]) {
+        return window.BULL_MARKET_ROLL_IMAGES[flavor.imageKey];
+      }
+      return flavor.imageUrl || '';
+    }
+
+    // ============================================================================
+    // 1. CONFIGURACIÓN DE COLORES, PALETAS Y LOS 10 SABORES OFICIALES BULL MARKET
+    // ============================================================================
+    const COLOR_PALETTE = {
+      amber: {
+        label: 'Avellana / Chocolate',
+        bgBtn: 'bg-amber-500/15 hover:bg-amber-500/25 active:bg-amber-500/35',
+        border: 'border-amber-500',
+        badgeBg: 'bg-amber-500 text-slate-950',
+        textAccent: 'text-amber-300',
+        glow: 'shadow-amber-500/20',
+      },
+      orange: {
+        label: 'Dulce de Leche / Tiramisú',
+        bgBtn: 'bg-orange-500/15 hover:bg-orange-500/25 active:bg-orange-500/35',
+        border: 'border-orange-500',
+        badgeBg: 'bg-orange-500 text-slate-950',
+        textAccent: 'text-orange-300',
+        glow: 'shadow-orange-500/20',
+      },
+      lime: {
+        label: 'Pie de Limón',
+        bgBtn: 'bg-lime-500/15 hover:bg-lime-500/25 active:bg-lime-500/35',
+        border: 'border-lime-500',
+        badgeBg: 'bg-lime-400 text-slate-950',
+        textAccent: 'text-lime-300',
+        glow: 'shadow-lime-500/20',
+      },
+      rose: {
+        label: 'Frutos Rojos',
+        bgBtn: 'bg-rose-500/15 hover:bg-rose-500/25 active:bg-rose-500/35',
+        border: 'border-rose-500',
+        badgeBg: 'bg-rose-500 text-white',
+        textAccent: 'text-rose-300',
+        glow: 'shadow-rose-500/20',
+      },
+      emerald: {
+        label: 'Pistacho',
+        bgBtn: 'bg-emerald-500/15 hover:bg-emerald-500/25 active:bg-emerald-500/35',
+        border: 'border-emerald-500',
+        badgeBg: 'bg-emerald-500 text-slate-950',
+        textAccent: 'text-emerald-300',
+        glow: 'shadow-emerald-500/20',
+      },
+      violet: {
+        label: 'Ovomaltina / Samba',
+        bgBtn: 'bg-violet-500/15 hover:bg-violet-500/25 active:bg-violet-500/35',
+        border: 'border-violet-500',
+        badgeBg: 'bg-violet-500 text-white',
+        textAccent: 'text-violet-300',
+        glow: 'shadow-violet-500/20',
+      },
+      sky: {
+        label: 'Oreo / Cinnamon',
+        bgBtn: 'bg-sky-500/15 hover:bg-sky-500/25 active:bg-sky-500/35',
+        border: 'border-sky-500',
+        badgeBg: 'bg-sky-400 text-slate-950',
+        textAccent: 'text-sky-300',
+        glow: 'shadow-sky-500/20',
+      },
+      fuchsia: {
+        label: 'Especial Bull',
+        bgBtn: 'bg-fuchsia-500/15 hover:bg-fuchsia-500/25 active:bg-fuchsia-500/35',
+        border: 'border-fuchsia-500',
+        badgeBg: 'bg-fuchsia-500 text-white',
+        textAccent: 'text-fuchsia-300',
+        glow: 'shadow-fuchsia-500/20',
+      },
+    };
+
+    const INITIAL_FLAVORS = [
+      {
+        id: 'flv-avellanas',
+        name: 'CREMA DE AVELLANAS',
+        shortCode: 'AVE',
+        color: 'amber',
+        available: true,
+        emoji: '🌰',
+        imageKey: 'crema-avellanas',
+        imageUrl: 'assets/rolls/crema-avellanas.png',
+        dateRange: '23/10 AL 01/11',
+      },
+      {
+        id: 'flv-tiramisu',
+        name: 'TIRAMISÚ',
+        shortCode: 'TIR',
+        color: 'orange',
+        available: true,
+        emoji: '☕',
+        imageKey: 'tiramisu',
+        imageUrl: 'assets/rolls/tiramisu.png',
+        dateRange: '23/10 AL 01/11',
+      },
+      {
+        id: 'flv-ovomaltina',
+        name: 'OVOMALTINA',
+        shortCode: 'OVO',
+        color: 'violet',
+        available: true,
+        emoji: '🍫',
+        imageKey: 'ovomaltina',
+        imageUrl: 'assets/rolls/ovomaltina.png',
+        dateRange: '23/10 AL 01/11',
+      },
+      {
+        id: 'flv-pie-limon',
+        name: 'PIE DE LIMÓN',
+        shortCode: 'LIM',
+        color: 'lime',
+        available: true,
+        emoji: '🍋',
+        imageKey: 'pie-limon',
+        imageUrl: 'assets/rolls/pie-limon.png',
+        dateRange: '23/10 AL 01/11',
+      },
+      {
+        id: 'flv-frutos-rojos',
+        name: 'FRUTOS ROJOS',
+        shortCode: 'FRO',
+        color: 'rose',
+        available: true,
+        emoji: '🍓',
+        imageKey: 'frutos-rojos',
+        imageUrl: 'assets/rolls/frutos-rojos.png',
+        dateRange: '23/10 AL 01/11',
+      },
+      {
+        id: 'flv-dulce-leche',
+        name: 'DULCE DE LECHE',
+        shortCode: 'DDL',
+        color: 'amber',
+        available: true,
+        emoji: '🍯',
+        imageKey: 'dulce-de-leche',
+        imageUrl: 'assets/rolls/dulce-de-leche.png',
+        dateRange: '23/10 AL 01/11',
+      },
+      {
+        id: 'flv-cinnamon',
+        name: 'CINNAMON',
+        shortCode: 'CIN',
+        color: 'sky',
+        available: true,
+        emoji: '🥐',
+        imageKey: 'cinnamon',
+        imageUrl: 'assets/rolls/cinnamon.png',
+        dateRange: '23/10 AL 25/10',
+      },
+      {
+        id: 'flv-samba',
+        name: 'SAMBA',
+        shortCode: 'SAM',
+        color: 'fuchsia',
+        available: true,
+        emoji: '🍬',
+        imageKey: 'samba',
+        imageUrl: 'assets/rolls/samba.png',
+        dateRange: '23/10 AL 25/10',
+      },
+      {
+        id: 'flv-pistacho',
+        name: 'PISTACHO',
+        shortCode: 'PIS',
+        color: 'emerald',
+        available: true,
+        emoji: '💚',
+        imageKey: 'pistacho',
+        imageUrl: 'assets/rolls/pistacho.png',
+        dateRange: '26/10 AL 29/10',
+      },
+      {
+        id: 'flv-oreo',
+        name: 'OREO',
+        shortCode: 'ORE',
+        color: 'sky',
+        available: true,
+        emoji: '🍪',
+        imageKey: 'oreo',
+        imageUrl: 'assets/rolls/oreo.png',
+        dateRange: '30/10 AL 01/11',
+      },
+    ];
+
+    const QUICK_NOTES = [
+      'Bien caliente',
+      'Sin topping',
+      'Cortado a la mitad',
+      'Empaque separado',
+      'Extra salsa',
+      'Prioridad / VIP',
+    ];
+
+    const EMOJI_PRESETS = ['🌰', '☕', '🍫', '🍋', '🍓', '🍯', '🥐', '🍬', '💚', '🍪', '🍩', '🧁'];
+
+    // ============================================================================
+    // 2. MOTOR DE AUDIO NATIVO WEB AUDIO API (CAMPANA DOBLE DE COCINA)
+    // ============================================================================
+    class SoundEngine {
+      constructor() {
+        this.ctx = null;
+        this.enabled = true;
+      }
+
+      getContext() {
+        if (!this.enabled) return null;
+        if (!this.ctx) {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (AudioCtx) this.ctx = new AudioCtx();
+        }
+        if (this.ctx && this.ctx.state === 'suspended') {
+          this.ctx.resume().catch(() => {});
+        }
+        return this.ctx;
+      }
+
+      playBellTone(ctx, freq, startTime, duration, peakGain) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, startTime);
+        gain.gain.setValueAtTime(0.001, startTime);
+        gain.gain.linearRampToValueAtTime(peakGain, startTime + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.0008, startTime + duration);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(startTime);
+        osc.stop(startTime + duration + 0.02);
+      }
+
+      playNewOrderBell() {
+        const ctx = this.getContext();
+        if (!ctx) return;
+        const now = ctx.currentTime;
+        this.playBellTone(ctx, 783.99, now, 0.55, 0.35);
+        this.playBellTone(ctx, 1567.98, now, 0.25, 0.12);
+        this.playBellTone(ctx, 659.25, now + 0.22, 0.75, 0.38);
+        this.playBellTone(ctx, 1318.51, now + 0.22, 0.35, 0.12);
+      }
+
+      playOrderDispatchedSound() {
+        const ctx = this.getContext();
+        if (!ctx) return;
+        const now = ctx.currentTime;
+        [523.25, 659.25, 783.99, 1046.5].forEach((freq, idx) => {
+          this.playBellTone(ctx, freq, now + idx * 0.07, 0.32, 0.22);
+        });
+      }
+
+      playTapSound(pitch = 480) {
+        const ctx = this.getContext();
+        if (!ctx) return;
+        const now = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(pitch, now);
+        osc.frequency.exponentialRampToValueAtTime(pitch * 1.25, now + 0.045);
+        gain.gain.setValueAtTime(0.11, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.055);
+      }
+
+      play86Alert() {
+        const ctx = this.getContext();
+        if (!ctx) return;
+        const now = ctx.currentTime;
+        this.playBellTone(ctx, 293.66, now, 0.2, 0.25);
+        this.playBellTone(ctx, 220.0, now + 0.16, 0.35, 0.28);
+      }
+    }
+
+    const soundEngine = new SoundEngine();
+
+    // ============================================================================
+    // 3. PERSISTENCIA DE SABORES Y SINCRONIZACIÓN CENTRALIZADA MULTI-DISPOSITIVO
+    // ============================================================================
+    const STORAGE_STATE_KEY = 'bull_market_kds_state_v2';
+    const STORAGE_FLAVORS_KEY = 'bull_market_kds_flavors_v2';
+    const STORAGE_ROOM_KEY = 'bull_market_kds_room_v2';
+    const DEFAULT_ROOM_CODE = 'bull_market_kds_live_v1';
+    const LOCAL_CHANNEL_NAME = 'bull_market_kds_channel_v2';
+
+    // Obtener sabores guardados (NUNCA se borran al reiniciar el día)
+    function getSavedFlavors() {
+      try {
+        const raw = localStorage.getItem(STORAGE_FLAVORS_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch (e) {}
+      return INITIAL_FLAVORS;
+    }
+
+    function saveFlavors(flavors) {
+      try {
+        localStorage.setItem(STORAGE_FLAVORS_KEY, JSON.stringify(flavors));
+      } catch (e) {}
+    }
+
+    function getSavedRoomCode() {
+      try {
+        return localStorage.getItem(STORAGE_ROOM_KEY) || DEFAULT_ROOM_CODE;
+      } catch (e) {
+        return DEFAULT_ROOM_CODE;
+      }
+    }
+
+    function createInitialDemoOrders(flavors) {
+      const flvs = flavors || INITIAL_FLAVORS;
+      const getF = (code) => flvs.find((f) => f.shortCode === code) || flvs[0];
+      const now = Date.now();
+
+      const f1 = getF('AVE');
+      const f2 = getF('TIR');
+      const f3 = getF('DDL');
+      const f4 = getF('OVO');
+      const f5 = getF('LIM');
+      const f6 = getF('PIS');
+
+      return [
+        {
+          id: 'ord-demo-1',
+          ticketNumber: '#001',
+          customerOrTable: 'Mesa 4 - Terraza',
+          orderType: 'comer_aqui',
+          note: 'Bien caliente',
+          status: 'preparando',
+          createdAt: now - (4 * 60 + 15) * 1000,
+          startedAt: now - 2 * 60 * 1000,
+          items: [
+            {
+              flavorId: f1.id,
+              flavorName: f1.name,
+              color: f1.color,
+              emoji: f1.emoji,
+              imageKey: f1.imageKey,
+              imageUrl: f1.imageUrl,
+              quantity: 2,
+              checked: true,
+            },
+            {
+              flavorId: f2.id,
+              flavorName: f2.name,
+              color: f2.color,
+              emoji: f2.emoji,
+              imageKey: f2.imageKey,
+              imageUrl: f2.imageUrl,
+              quantity: 2,
+              checked: false,
+            },
+          ],
+        },
+        {
+          id: 'ord-demo-2',
+          ticketNumber: '#002',
+          customerOrTable: 'Carlos M.',
+          orderType: 'para_llevar',
+          note: 'Empaque separado',
+          status: 'pendiente',
+          createdAt: now - 85 * 1000,
+          items: [
+            {
+              flavorId: f3.id,
+              flavorName: f3.name,
+              color: f3.color,
+              emoji: f3.emoji,
+              imageKey: f3.imageKey,
+              imageUrl: f3.imageUrl,
+              quantity: 3,
+              checked: false,
+            },
+            {
+              flavorId: f4.id,
+              flavorName: f4.name,
+              color: f4.color,
+              emoji: f4.emoji,
+              imageKey: f4.imageKey,
+              imageUrl: f4.imageUrl,
+              quantity: 1,
+              checked: false,
+            },
+            {
+              flavorId: f5.id,
+              flavorName: f5.name,
+              color: f5.color,
+              emoji: f5.emoji,
+              imageKey: f5.imageKey,
+              imageUrl: f5.imageUrl,
+              quantity: 2,
+              checked: false,
+            },
+          ],
+        },
+        {
+          id: 'ord-demo-3',
+          ticketNumber: '#003',
+          customerOrTable: 'Barra Express',
+          orderType: 'comer_aqui',
+          note: '',
+          status: 'pendiente',
+          createdAt: now - 30 * 1000,
+          items: [
+            {
+              flavorId: f6.id,
+              flavorName: f6.name,
+              color: f6.color,
+              emoji: f6.emoji,
+              imageKey: f6.imageKey,
+              imageUrl: f6.imageUrl,
+              quantity: 2,
+              checked: false,
+            },
+          ],
+        },
+      ];
+    }
+
+    function getInitialState() {
+      const currentFlavors = getSavedFlavors();
+      const currentRoom = getSavedRoomCode();
+
+      try {
+        const raw = localStorage.getItem(STORAGE_STATE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && Array.isArray(parsed.orders)) {
+            return {
+              ...parsed,
+              flavors: parsed.flavors && parsed.flavors.length > 0 ? parsed.flavors : currentFlavors,
+              roomCode: currentRoom,
+            };
+          }
+        }
+      } catch (e) {}
+
+      const initial = {
+        flavors: currentFlavors,
+        orders: createInitialDemoOrders(currentFlavors),
+        nextTicketSeq: 4,
+        lastUpdated: Date.now(),
+        roomCode: currentRoom,
+      };
+
+      try {
+        localStorage.setItem(STORAGE_STATE_KEY, JSON.stringify(initial));
+        saveFlavors(currentFlavors);
+      } catch (e) {}
+
+      return initial;
+    }
+
+    // Motor de sincronización centralizada en tiempo real (Multi-Dispositivo)
+    class RealtimeSyncEngine {
+      constructor() {
+        this.listeners = new Set();
+        this.channel = null;
+        this.sseSource = null;
+        this.deviceId = 'dev_' + Math.random().toString(36).substring(2, 9);
+        this.currentState = getInitialState();
+
+        if ('BroadcastChannel' in window) {
+          this.channel = new BroadcastChannel(LOCAL_CHANNEL_NAME);
+          this.channel.onmessage = (event) => {
+            if (event.data && event.data.type === 'KDS_STATE_UPDATE') {
+              if (event.data.deviceId === this.deviceId) return;
+              this.handleIncomingState(event.data.state, event.data.meta);
+            }
+          };
+        }
+
+        window.addEventListener('storage', (e) => {
+          if (e.key === STORAGE_STATE_KEY && e.newValue) {
+            try {
+              const newState = JSON.parse(e.newValue);
+              this.handleIncomingState(newState);
+            } catch (err) {}
+          }
+        });
+
+        this.initCloudCentralizedSync();
+      }
+
+      subscribe(listener) {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+      }
+
+      notify(state, meta) {
+        this.currentState = state;
+        this.listeners.forEach((fn) => fn(state, meta));
+      }
+
+      handleIncomingState(incoming, meta) {
+        if (!incoming || !incoming.lastUpdated) return;
+        if (incoming.lastUpdated <= this.currentState.lastUpdated) return;
+
+        // Persistir sabores por separado para que NUNCA se borren
+        if (incoming.flavors && incoming.flavors.length > 0) {
+          saveFlavors(incoming.flavors);
+        }
+
+        try {
+          localStorage.setItem(STORAGE_STATE_KEY, JSON.stringify(incoming));
+        } catch (e) {}
+
+        const isNew =
+          meta?.isNewOrder ||
+          (incoming.orders && incoming.orders.length > this.currentState.orders.length);
+
+        this.notify(incoming, { isNewOrder: isNew, newOrderTicket: meta?.newOrderTicket });
+      }
+
+      publishState(nextState, meta) {
+        const stamped = { ...nextState, lastUpdated: Date.now() };
+        this.currentState = stamped;
+
+        if (stamped.flavors && stamped.flavors.length > 0) {
+          saveFlavors(stamped.flavors);
+        }
+
+        try {
+          localStorage.setItem(STORAGE_STATE_KEY, JSON.stringify(stamped));
+        } catch (e) {}
+
+        if (this.channel) {
+          this.channel.postMessage({
+            type: 'KDS_STATE_UPDATE',
+            state: stamped,
+            meta,
+            deviceId: this.deviceId,
+          });
+        }
+
+        this.notify(stamped, meta);
+        this.broadcastToCloud(stamped, meta);
+      }
+
+      initCloudCentralizedSync() {
+        if (this.sseSource) {
+          this.sseSource.close();
+          this.sseSource = null;
+        }
+
+        const room = this.currentState.roomCode || DEFAULT_ROOM_CODE;
+
+        // Conexión Server-Sent Events en tiempo real global
+        try {
+          const es = new EventSource(`https://ntfy.sh/${encodeURIComponent(room)}/sse`);
+          es.onmessage = (event) => {
+            try {
+              const payload = JSON.parse(event.data);
+              if (payload && payload.message) {
+                const parsed = JSON.parse(payload.message);
+                if (parsed && parsed.deviceId !== this.deviceId && parsed.state) {
+                  this.handleIncomingState(parsed.state, parsed.meta);
+                }
+              }
+            } catch (err) {}
+          };
+          this.sseSource = es;
+        } catch (err) {}
+
+        // Traer el estado más reciente guardado en la nube
+        this.fetchCloudState(room);
+      }
+
+      async fetchCloudState(room) {
+        try {
+          const res = await fetch(`https://ntfy.sh/${encodeURIComponent(room)}/json?poll=1&since=12h`);
+          if (!res.ok) return;
+          const text = await res.text();
+          const lines = text.trim().split('\n');
+          for (let i = lines.length - 1; i >= 0; i--) {
+            try {
+              const item = JSON.parse(lines[i]);
+              if (item && item.message) {
+                const parsed = JSON.parse(item.message);
+                if (parsed && parsed.state && parsed.state.lastUpdated) {
+                  if (parsed.state.lastUpdated > this.currentState.lastUpdated) {
+                    this.handleIncomingState(parsed.state, parsed.meta);
+                    break;
+                  }
+                }
+              }
+            } catch (err) {}
+          }
+        } catch (err) {}
+      }
+
+      async broadcastToCloud(state, meta) {
+        const room = state.roomCode || DEFAULT_ROOM_CODE;
+        try {
+          const payload = JSON.stringify({
+            deviceId: this.deviceId,
+            state,
+            meta,
+          });
+          await fetch(`https://ntfy.sh/${encodeURIComponent(room)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: payload,
+          });
+        } catch (err) {}
+      }
+
+      setRoomCode(newRoom) {
+        const clean = newRoom.trim() || DEFAULT_ROOM_CODE;
+        try {
+          localStorage.setItem(STORAGE_ROOM_KEY, clean);
+        } catch (e) {}
+
+        const next = { ...this.currentState, roomCode: clean, lastUpdated: Date.now() };
+        this.publishState(next);
+        this.initCloudCentralizedSync();
+      }
+    }
+
+    const syncEngine = new RealtimeSyncEngine();
+
+    // ============================================================================
+    // 4. VISTA 1: EMISOR DE BARRA (/barra) - TOUCH ULTRA RÁPIDO CON FOTOS REALES
+    // ============================================================================
+    function BarraView({ flavors, orders, nextTicketSeq, onCreateOrder }) {
+      const formattedSeq = `#${String(nextTicketSeq).padStart(3, '0')}`;
+      const [customTicket, setCustomTicket] = useState('');
+      const [customerOrTable, setCustomerOrTable] = useState('');
+      const [orderType, setOrderType] = useState('comer_aqui');
+      const [note, setNote] = useState('');
+      const [cart, setCart] = useState({});
+      const [flashSuccess, setFlashSuccess] = useState(null);
+      const [now, setNow] = useState(Date.now());
+
+      useEffect(() => {
+        const t = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(t);
+      }, []);
+
+      const handleTapFlavor = (flavor) => {
+        if (!flavor.available) {
+          soundEngine.play86Alert();
+          return;
+        }
+        soundEngine.playTapSound(520);
+        setCart((prev) => ({
+          ...prev,
+          [flavor.id]: (prev[flavor.id] || 0) + 1,
+        }));
+      };
+
+      const handleAdjustQuantity = (e, flavor, delta) => {
+        e.stopPropagation();
+        if (!flavor.available && delta > 0) {
+          soundEngine.play86Alert();
+          return;
+        }
+        soundEngine.playTapSound(delta > 0 ? 580 : 380);
+        setCart((prev) => {
+          const nextQty = (prev[flavor.id] || 0) + delta;
+          if (nextQty <= 0) {
+            const copy = { ...prev };
+            delete copy[flavor.id];
+            return copy;
+          }
+          return { ...prev, [flavor.id]: nextQty };
+        });
+      };
+
+      const toggleQuickNote = (chip) => {
+        soundEngine.playTapSound(460);
+        setNote((prev) => {
+          const parts = prev
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean);
+          if (parts.includes(chip)) {
+            return parts.filter((p) => p !== chip).join(', ');
+          }
+          return [...parts, chip].join(', ');
+        });
+      };
+
+      const totalUnits = Object.values(cart).reduce((acc, q) => acc + q, 0);
+
+      const handleSubmitOrder = () => {
+        if (totalUnits === 0) return;
+        const items = flavors
+          .filter((f) => (cart[f.id] || 0) > 0)
+          .map((f) => ({
+            flavorId: f.id,
+            flavorName: f.name,
+            color: f.color,
+            emoji: f.emoji,
+            imageKey: f.imageKey,
+            imageUrl: f.imageUrl,
+            quantity: cart[f.id],
+            checked: false,
+          }));
+
+        const finalTicket = customTicket.trim() || formattedSeq;
+
+        onCreateOrder({
+          ticketNumber: finalTicket,
+          customerOrTable: customerOrTable.trim() || 'Barra Directa',
+          orderType,
+          note: note.trim(),
+          items,
+        });
+
+        soundEngine.playTapSound(740);
+        setFlashSuccess(`✅ Comanda ${finalTicket} enviada a Panadería (${totalUnits} uds)`);
+        setTimeout(() => setFlashSuccess(null), 2600);
+
+        setCart({});
+        setCustomTicket('');
+        setCustomerOrTable('');
+        setNote('');
+      };
+
+      const recentOrders = [...orders]
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .slice(0, 12);
+
+      const formatElapsed = (timestamp) => {
+        const diffSec = Math.max(0, Math.floor((now - timestamp) / 1000));
+        const mins = Math.floor(diffSec / 60);
+        const secs = diffSec % 60;
+        return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+      };
+
+      return (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 p-3 md:p-5 max-w-[1650px] mx-auto">
+          {/* TECLADO CON FOTO REAL DE CADA ROLLO */}
+          <div className="lg:col-span-7 xl:col-span-8 flex flex-col gap-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 bg-[#4a2e1b]/80 border border-amber-500/30 rounded-2xl px-4 py-3 shadow-md">
+              <div className="flex items-center gap-2.5">
+                <span className="h-3 w-3 rounded-full bg-amber-400 animate-pulse" />
+                <h2 className="text-base md:text-lg font-black tracking-tight text-[#fdf5e6] uppercase">
+                  Sabores Bull Market — Toca el Roll para sumar (+1)
+                </h2>
+              </div>
+              <div className="flex items-center gap-2 text-xs md:text-sm text-amber-200/80">
+                <span>Disponibles:</span>
+                <span className="font-black text-emerald-400">
+                  {flavors.filter((f) => f.available).length}
+                </span>
+                <span>/</span>
+                <span className="font-black text-rose-400">
+                  {flavors.filter((f) => !f.available).length} Agotados (86)
+                </span>
+              </div>
+            </div>
+
+            {/* Grid de Botones con Foto Circular Real */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
+              {flavors.map((flavor) => {
+                const palette = COLOR_PALETTE[flavor.color] || COLOR_PALETTE.amber;
+                const qty = cart[flavor.id] || 0;
+                const isSelected = qty > 0;
+                const imgSrc = getRollImage(flavor);
+
+                return (
+                  <div
+                    key={flavor.id}
+                    onClick={() => handleTapFlavor(flavor)}
+                    role="button"
+                    tabIndex={0}
+                    className={`relative select-none rounded-2xl border-2 p-3 transition-all duration-150 flex flex-col justify-between min-h-[200px] ${
+                      !flavor.available
+                        ? 'bg-slate-900/40 border-slate-800 opacity-60 cursor-not-allowed'
+                        : isSelected
+                        ? `bg-[#5c3820] ${palette.border} shadow-xl ${palette.glow} scale-[1.02] cursor-pointer`
+                        : `bg-[#3b2313]/90 hover:bg-[#4d2f1a] border-amber-900/60 hover:${palette.border} cursor-pointer active:scale-95`
+                    }`}
+                  >
+                    {!flavor.available && (
+                      <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-[1px] rounded-2xl flex flex-col items-center justify-center z-20 p-2 text-center">
+                        <span className="inline-flex items-center gap-1.5 bg-rose-600 text-white text-xs font-black uppercase px-3 py-1.5 rounded-full shadow-lg border border-rose-400">
+                          🚫 AGOTADO (86)
+                        </span>
+                        <span className="text-[11px] text-rose-300 mt-1 font-medium">
+                          Bloqueado en Barra
+                        </span>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between gap-1 z-10">
+                      <span
+                        className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${palette.badgeBg}`}
+                      >
+                        {flavor.dateRange || flavor.shortCode}
+                      </span>
+
+                      {qty > 0 && (
+                        <span
+                          className={`inline-flex items-center justify-center min-w-[36px] h-9 px-2 rounded-xl text-lg font-black tabular-nums shadow-lg ${palette.badgeBg}`}
+                        >
+                          {qty}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="my-2 flex flex-col items-center text-center">
+                      {imgSrc ? (
+                        <img
+                          src={imgSrc}
+                          alt={flavor.name}
+                          className="w-20 h-20 md:w-24 md:h-24 rounded-full object-cover shadow-lg border-2 border-amber-400/50"
+                        />
+                      ) : (
+                        <span className="text-5xl py-2">{flavor.emoji}</span>
+                      )}
+                      <p className="mt-2 text-sm md:text-base font-black text-[#fff8eb] uppercase tracking-tight leading-tight">
+                        {flavor.name}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2 border-t border-white/10">
+                      {qty > 0 ? (
+                        <div className="flex items-center justify-between w-full gap-1.5">
+                          <button
+                            type="button"
+                            onClick={(e) => handleAdjustQuantity(e, flavor, -1)}
+                            className="h-9 w-10 rounded-xl bg-slate-950/90 hover:bg-rose-600 text-white font-black text-base flex items-center justify-center border border-white/15"
+                          >
+                            −
+                          </button>
+                          <span className={`text-[11px] font-black uppercase ${palette.textAccent}`}>
+                            {qty} uds
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => handleAdjustQuantity(e, flavor, 1)}
+                            className="h-9 w-10 rounded-xl bg-slate-950/90 hover:bg-emerald-600 text-white font-black text-base flex items-center justify-center border border-white/15"
+                          >
+                            +
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-[11px] font-bold text-amber-200/70 mx-auto">
+                          + Toca para +1
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Datos de Comanda */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                <div className="sm:col-span-3">
+                  <label className="block text-xs font-bold uppercase text-slate-400 mb-1">
+                    # N° Comanda
+                  </label>
+                  <input
+                    type="text"
+                    value={customTicket}
+                    onChange={(e) => setCustomTicket(e.target.value)}
+                    placeholder={formattedSeq}
+                    className="w-full h-12 rounded-xl bg-slate-950 border border-slate-700 px-3 text-lg font-black text-amber-400 placeholder:text-amber-400/70 focus:outline-none focus:border-amber-400"
+                  />
+                </div>
+
+                <div className="sm:col-span-5">
+                  <label className="block text-xs font-bold uppercase text-slate-400 mb-1">
+                    👤 Cliente / Mesa
+                  </label>
+                  <input
+                    type="text"
+                    value={customerOrTable}
+                    onChange={(e) => setCustomerOrTable(e.target.value)}
+                    placeholder="Ej. Mesa 5, Ana, Barra..."
+                    className="w-full h-12 rounded-xl bg-slate-950 border border-slate-700 px-3 text-base font-bold text-white placeholder:text-slate-500 focus:outline-none focus:border-sky-400"
+                  />
+                </div>
+
+                <div className="sm:col-span-4">
+                  <label className="block text-xs font-bold uppercase text-slate-400 mb-1">
+                    Modalidad (1 Toque)
+                  </label>
+                  <div className="grid grid-cols-2 gap-2 h-12">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        soundEngine.playTapSound(440);
+                        setOrderType('comer_aqui');
+                      }}
+                      className={`rounded-xl font-bold text-xs md:text-sm flex items-center justify-center gap-1 border transition-all ${
+                        orderType === 'comer_aqui'
+                          ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      🍽️ Comer Aquí
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        soundEngine.playTapSound(440);
+                        setOrderType('para_llevar');
+                      }}
+                      className={`rounded-xl font-bold text-xs md:text-sm flex items-center justify-center gap-1 border transition-all ${
+                        orderType === 'para_llevar'
+                          ? 'bg-amber-500/20 border-amber-400 text-amber-300'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      🛍️ Para Llevar
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] font-bold uppercase text-slate-500 mr-1">
+                  Ubicación rápida:
+                </span>
+                {['Barra 1', 'Barra 2', 'Mesa 1', 'Mesa 2', 'Mesa 3', 'Terraza', 'VIP'].map(
+                  (preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => {
+                        soundEngine.playTapSound(480);
+                        setCustomerOrTable(preset);
+                      }}
+                      className={`text-xs font-bold px-2.5 py-1 rounded-lg border transition-colors ${
+                        customerOrTable === preset
+                          ? 'bg-sky-500 text-slate-950 border-sky-400'
+                          : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-600'
+                      }`}
+                    >
+                      {preset}
+                    </button>
+                  )
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-400 mb-1.5">
+                  📝 Nota Rápida para Panadería
+                </label>
+                <input
+                  type="text"
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder="Ej. Sin topping, bien caliente, alergia..."
+                  className="w-full h-11 rounded-xl bg-slate-950 border border-slate-700 px-3 text-sm font-semibold text-white placeholder:text-slate-500 focus:outline-none focus:border-amber-400 mb-2"
+                />
+                <div className="flex flex-wrap gap-1.5">
+                  {QUICK_NOTES.map((chip) => {
+                    const active = note
+                      .split(',')
+                      .map((s) => s.trim())
+                      .includes(chip);
+                    return (
+                      <button
+                        key={chip}
+                        type="button"
+                        onClick={() => toggleQuickNote(chip)}
+                        className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-all ${
+                          active
+                            ? 'bg-amber-500 text-slate-950 border-amber-300'
+                            : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-600'
+                        }`}
+                      >
+                        + {chip}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* RESUMEN DE COMANDA + BOTÓN GIGANTE + HISTORIAL */}
+          <div className="lg:col-span-5 xl:col-span-4 flex flex-col gap-4">
+            <div className="bg-slate-900 border-2 border-slate-800 rounded-2xl p-4 flex flex-col justify-between shadow-xl">
+              <div>
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-3">
+                  <div>
+                    <span className="text-xs font-bold uppercase text-slate-400 block">
+                      Comanda Actual
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-2xl font-black text-amber-400 tabular-nums">
+                        {customTicket.trim() || formattedSeq}
+                      </span>
+                      <span className="text-sm font-bold text-slate-300 truncate max-w-[160px]">
+                        • {customerOrTable.trim() || 'Barra Directa'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {totalUnits > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        soundEngine.playTapSound(300);
+                        setCart({});
+                        setNote('');
+                      }}
+                      className="text-xs font-bold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 px-3 py-2 rounded-xl"
+                    >
+                      🗑️ Limpiar
+                    </button>
+                  )}
+                </div>
+
+                {totalUnits === 0 ? (
+                  <div className="py-8 text-center border border-dashed border-slate-800 rounded-xl bg-slate-950/50 my-2">
+                    <p className="text-slate-400 font-bold text-sm">
+                      Toca los sabores para armar la comanda
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Se enviará en tiempo real al KDS de Panadería en cualquier dispositivo
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1 my-2">
+                    {flavors
+                      .filter((f) => (cart[f.id] || 0) > 0)
+                      .map((f) => {
+                        const palette = COLOR_PALETTE[f.color] || COLOR_PALETTE.amber;
+                        const qty = cart[f.id];
+                        const imgSrc = getRollImage(f);
+                        return (
+                          <div
+                            key={f.id}
+                            className="flex items-center justify-between bg-slate-950 border border-slate-800 rounded-xl px-3 py-2"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              {imgSrc ? (
+                                <img
+                                  src={imgSrc}
+                                  alt={f.name}
+                                  className="w-10 h-10 rounded-full object-cover border border-amber-400/50 shrink-0"
+                                />
+                              ) : (
+                                <span className="text-xl">{f.emoji}</span>
+                              )}
+                              <span className="font-extrabold text-white text-sm truncate uppercase">
+                                {f.name}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={(e) => handleAdjustQuantity(e, f, -1)}
+                                className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-rose-600 text-white font-black"
+                              >
+                                −
+                              </button>
+                              <span
+                                className={`min-w-[34px] text-center font-black text-base tabular-nums px-2 py-0.5 rounded-lg ${palette.badgeBg}`}
+                              >
+                                {qty}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={(e) => handleAdjustQuantity(e, f, 1)}
+                                className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-emerald-600 text-white font-black"
+                              >
+                                +
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+              </div>
+
+              {flashSuccess && (
+                <div className="my-2 bg-emerald-500/20 border border-emerald-400 text-emerald-200 px-3 py-2.5 rounded-xl text-xs font-bold">
+                  {flashSuccess}
+                </div>
+              )}
+
+              <button
+                type="button"
+                disabled={totalUnits === 0}
+                onClick={handleSubmitOrder}
+                className={`mt-3 w-full py-4 px-5 rounded-2xl font-black text-lg md:text-xl uppercase tracking-wide flex items-center justify-between transition-all shadow-xl ${
+                  totalUnits > 0
+                    ? 'bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 shadow-amber-500/25 active:scale-[0.98] cursor-pointer'
+                    : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                }`}
+              >
+                <span>🚀 Enviar a Panadería</span>
+                <span className="bg-slate-950/90 text-amber-400 px-3.5 py-1 rounded-xl text-base font-black tabular-nums">
+                  {totalUnits} {totalUnits === 1 ? 'ud' : 'uds'}
+                </span>
+              </button>
+            </div>
+
+            {/* Historial en Vivo */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 flex-1 flex flex-col">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-300">
+                  ⏱️ Estado en Vivo en Panadería
+                </h3>
+                <span className="text-xs font-bold text-slate-400">
+                  Últimas {recentOrders.length}
+                </span>
+              </div>
+
+              <div className="space-y-2.5 max-h-[360px] overflow-y-auto pr-1">
+                {recentOrders.map((ord) => {
+                  const count = ord.items.reduce((s, i) => s + i.quantity, 0);
+                  return (
+                    <div
+                      key={ord.id}
+                      className={`rounded-xl border p-3 transition-all ${
+                        ord.status === 'despachado'
+                          ? 'bg-emerald-950/25 border-emerald-500/40'
+                          : ord.status === 'preparando'
+                          ? 'bg-sky-950/30 border-sky-500/50'
+                          : 'bg-slate-950 border-slate-800'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-black text-base text-white tabular-nums">
+                            {ord.ticketNumber}
+                          </span>
+                          <span className="text-xs font-bold text-slate-300 truncate max-w-[115px]">
+                            {ord.customerOrTable}
+                          </span>
+                          <span className="text-[11px] font-bold bg-slate-800 text-slate-300 px-2 py-0.5 rounded-md">
+                            {count} uds
+                          </span>
+                        </div>
+
+                        {ord.status === 'pendiente' && (
+                          <span className="text-xs font-extrabold px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                            ⏳ Pendiente ({formatElapsed(ord.createdAt)})
+                          </span>
+                        )}
+                        {ord.status === 'preparando' && (
+                          <span className="text-xs font-extrabold px-2.5 py-1 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/40 animate-pulse">
+                            👨‍🍳 Preparando ({formatElapsed(ord.createdAt)})
+                          </span>
+                        )}
+                        {ord.status === 'despachado' && (
+                          <span className="text-xs font-extrabold px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                            ✅ ¡Listo para retirar!
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {ord.items.map((item) => (
+                          <span
+                            key={item.flavorId}
+                            className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md ${
+                              item.checked
+                                ? 'bg-emerald-500/20 text-emerald-300 line-through'
+                                : 'bg-slate-800 text-slate-200'
+                            }`}
+                          >
+                            {item.quantity}x {item.flavorName}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ============================================================================
+    // 5. VISTA 2: PANTALLA KDS DE PANADERÍA (/panaderia)
+    // ============================================================================
+    function PanaderiaView({
+      flavors,
+      orders,
+      onUpdateOrderStatus,
+      onToggleOrderItemCheck,
+      onToggleFlavorAvailability,
+    }) {
+      const [now, setNow] = useState(Date.now());
+      const [discountCheckedItems, setDiscountCheckedItems] = useState(false);
+      const [showRecentlyDispatched, setShowRecentlyDispatched] = useState(false);
+
+      useEffect(() => {
+        const t = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(t);
+      }, []);
+
+      const activeOrders = [...orders]
+        .filter((o) => o.status === 'pendiente' || o.status === 'preparando')
+        .sort((a, b) => a.createdAt - b.createdAt);
+
+      const dispatchedOrders = [...orders]
+        .filter((o) => o.status === 'despachado')
+        .sort((a, b) => (b.dispatchedAt || b.createdAt) - (a.dispatchedAt || a.createdAt))
+        .slice(0, 8);
+
+      const batchTotals = flavors.map((flavor) => {
+        let totalInActiveOrders = 0;
+        let totalUnchecked = 0;
+        activeOrders.forEach((ord) => {
+          ord.items.forEach((item) => {
+            if (item.flavorId === flavor.id) {
+              totalInActiveOrders += item.quantity;
+              if (!item.checked) totalUnchecked += item.quantity;
+            }
+          });
+        });
+        const displayedCount = discountCheckedItems ? totalUnchecked : totalInActiveOrders;
+        const checkedInTray = totalInActiveOrders - totalUnchecked;
+        return { flavor, displayedCount, totalInActiveOrders, checkedInTray };
+      });
+
+      const totalPendingUnits = batchTotals.reduce((acc, b) => acc + b.displayedCount, 0);
+
+      const getUrgencyLevel = (createdAt) => {
+        const elapsedMinutes = (now - createdAt) / 60000;
+        if (elapsedMinutes < 3) return 'green';
+        if (elapsedMinutes <= 6) return 'yellow';
+        return 'red';
+      };
+
+      const formatTimer = (createdAt) => {
+        const diffSec = Math.max(0, Math.floor((now - createdAt) / 1000));
+        const mins = Math.floor(diffSec / 60);
+        const secs = diffSec % 60;
+        return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+      };
+
+      const formatTimeOfDay = (timestamp) => {
+        return new Date(timestamp).toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        });
+      };
+
+      return (
+        <div className="flex flex-col min-h-[calc(100vh-64px)] bg-slate-950 text-white">
+          {/* PANEL SUPERIOR FIJO: PRODUCCIÓN EN LOTE CON FOTOS REALES */}
+          <section className="sticky top-[64px] z-30 bg-slate-950/95 backdrop-blur-md border-b-2 border-slate-800 px-3 py-3 md:px-6 md:py-3.5 shadow-2xl">
+            <div className="max-w-[1800px] mx-auto">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+                <div className="flex items-center gap-2.5">
+                  <span className="text-xl">🔥</span>
+                  <h2 className="text-sm md:text-base font-black uppercase tracking-wider text-white flex items-center gap-2">
+                    Consolidado en Vivo por Sabor (Producción en Lote)
+                    <span className="bg-amber-500 text-slate-950 text-xs font-black px-2.5 py-0.5 rounded-full tabular-nums">
+                      {totalPendingUnits} UDS PENDIENTES
+                    </span>
+                  </h2>
+                </div>
+
+                <div className="flex items-center gap-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      soundEngine.playTapSound(460);
+                      setDiscountCheckedItems((p) => !p);
+                    }}
+                    className={`px-3 py-1.5 rounded-xl font-bold border transition-all ${
+                      discountCheckedItems
+                        ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
+                        : 'bg-slate-900 border-slate-700 text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    {discountCheckedItems
+                      ? '☑️ Descontando al tachar en bandeja'
+                      : '📦 Descontar al despachar comanda'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowRecentlyDispatched((p) => !p)}
+                    className="px-3 py-1.5 rounded-xl font-bold bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300"
+                  >
+                    ↩️ Historial ({dispatchedOrders.length})
+                  </button>
+                </div>
+              </div>
+
+              {/* Grid de 10 Sabores */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5">
+                {batchTotals.map(({ flavor, displayedCount, checkedInTray }) => {
+                  const palette = COLOR_PALETTE[flavor.color] || COLOR_PALETTE.amber;
+                  const hasPending = displayedCount > 0;
+                  const imgSrc = getRollImage(flavor);
+
+                  return (
+                    <div
+                      key={flavor.id}
+                      className={`relative rounded-2xl border-2 px-3 py-2 flex items-center justify-between transition-all ${
+                        !flavor.available
+                          ? 'bg-rose-950/30 border-rose-600/60 opacity-75'
+                          : hasPending
+                          ? `bg-[#4a2e1b] ${palette.border} shadow-lg ${palette.glow}`
+                          : 'bg-slate-900/60 border-slate-800/80 opacity-60'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0 pr-1.5">
+                        {imgSrc ? (
+                          <img
+                            src={imgSrc}
+                            alt={flavor.name}
+                            className="w-11 h-11 rounded-full object-cover border border-amber-400/60 shrink-0 shadow"
+                          />
+                        ) : (
+                          <span className="text-2xl">{flavor.emoji}</span>
+                        )}
+                        <div className="min-w-0">
+                          <p className="text-xs font-black text-white uppercase leading-tight truncate">
+                            {flavor.name}
+                          </p>
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                soundEngine.play86Alert();
+                                onToggleFlavorAvailability(flavor.id);
+                              }}
+                              className={`text-[9px] font-black px-1.5 py-0.5 rounded border ${
+                                flavor.available
+                                  ? 'bg-slate-950/70 border-slate-700 text-slate-400 hover:text-rose-400'
+                                  : 'bg-rose-600 border-rose-400 text-white'
+                              }`}
+                            >
+                              {flavor.available ? '86' : 'AGOTADO'}
+                            </button>
+                            {checkedInTray > 0 && (
+                              <span className="text-[10px] font-bold text-emerald-300 truncate">
+                                ✓{checkedInTray}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div
+                        className={`shrink-0 min-w-[46px] h-11 px-2 rounded-xl flex items-center justify-center text-2xl font-black tabular-nums shadow-inner ${
+                          hasPending
+                            ? palette.badgeBg
+                            : 'bg-slate-950 text-slate-600 border border-slate-800'
+                        }`}
+                      >
+                        {displayedCount}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+
+          {showRecentlyDispatched && (
+            <div className="bg-slate-900 border-b border-slate-800 px-4 py-3">
+              <div className="max-w-[1800px] mx-auto">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-extrabold uppercase text-sky-400">
+                    ↩️ Últimas Comandas Despachadas
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowRecentlyDispatched(false)}
+                    className="text-xs text-slate-400 hover:text-white font-bold"
+                  >
+                    Cerrar ✕
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {dispatchedOrders.map((ord) => (
+                    <div
+                      key={ord.id}
+                      className="flex items-center gap-2.5 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5"
+                    >
+                      <span className="font-black text-sm text-emerald-400">
+                        {ord.ticketNumber}
+                      </span>
+                      <span className="text-xs text-slate-300">{ord.customerOrTable}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          soundEngine.playTapSound(500);
+                          onUpdateOrderStatus(ord.id, 'preparando');
+                        }}
+                        className="text-xs font-bold bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 px-2 py-0.5 rounded-lg"
+                      >
+                        Recuperar
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* PANEL PRINCIPAL: COLA FIFO */}
+          <main className="flex-1 p-3 md:p-6 max-w-[1800px] w-full mx-auto">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+              <div>
+                <h3 className="text-base md:text-lg font-black uppercase tracking-wide text-white">
+                  📋 Cola de Comandas en Orden de Llegada (FIFO: {activeOrders.length} activas)
+                </h3>
+              </div>
+
+              <div className="flex items-center gap-2.5 text-xs font-bold">
+                <span className="inline-flex items-center gap-1.5 text-emerald-400 bg-emerald-950/60 border border-emerald-500/40 px-2.5 py-1 rounded-full">
+                  🟢 &lt; 3 min
+                </span>
+                <span className="inline-flex items-center gap-1.5 text-amber-300 bg-amber-950/60 border border-amber-500/40 px-2.5 py-1 rounded-full">
+                  🟡 3 - 6 min
+                </span>
+                <span className="inline-flex items-center gap-1.5 text-rose-300 bg-rose-950/60 border border-rose-500/40 px-2.5 py-1 rounded-full animate-pulse">
+                  🔴 &gt; 6 min
+                </span>
+              </div>
+            </div>
+
+            {activeOrders.length === 0 ? (
+              <div className="border-2 border-dashed border-slate-800 rounded-3xl p-12 text-center my-6 bg-slate-900/30">
+                <div className="text-5xl mb-3">✅</div>
+                <h4 className="text-2xl font-black text-white">
+                  ¡Sin comandas pendientes en Panadería!
+                </h4>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {activeOrders.map((order, fifoIndex) => {
+                  const urgency = getUrgencyLevel(order.createdAt);
+                  const totalOrderUnits = order.items.reduce((s, i) => s + i.quantity, 0);
+                  const checkedUnits = order.items.reduce(
+                    (s, i) => s + (i.checked ? i.quantity : 0),
+                    0
+                  );
+                  const progressPct =
+                    totalOrderUnits > 0
+                      ? Math.round((checkedUnits / totalOrderUnits) * 100)
+                      : 0;
+
+                  const urgencyStyles = {
+                    green: {
+                      cardBorder:
+                        order.status === 'preparando'
+                          ? 'border-sky-400 shadow-lg shadow-sky-500/10'
+                          : 'border-emerald-500/70',
+                      headerBg: 'bg-emerald-500/15 border-b border-emerald-500/30',
+                      timerBadge: 'bg-emerald-500 text-slate-950',
+                    },
+                    yellow: {
+                      cardBorder: 'border-amber-400 shadow-lg shadow-amber-500/15',
+                      headerBg: 'bg-amber-500/20 border-b border-amber-500/40',
+                      timerBadge: 'bg-amber-400 text-slate-950',
+                    },
+                    red: {
+                      cardBorder:
+                        'border-rose-500 shadow-xl shadow-rose-500/25 ring-2 ring-rose-500/50',
+                      headerBg: 'bg-rose-600/30 border-b border-rose-500 animate-pulse',
+                      timerBadge: 'bg-rose-600 text-white animate-bounce',
+                    },
+                  }[urgency];
+
+                  return (
+                    <article
+                      key={order.id}
+                      className={`rounded-2xl bg-slate-900 border-2 flex flex-col justify-between overflow-hidden transition-all ${urgencyStyles.cardBorder}`}
+                    >
+                      <div>
+                        <div className={`p-3.5 ${urgencyStyles.headerBg}`}>
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-black uppercase px-2 py-0.5 rounded bg-slate-950 text-amber-400 border border-amber-500/30">
+                                  FIFO #{fifoIndex + 1}
+                                </span>
+                                {order.status === 'preparando' && (
+                                  <span className="text-xs font-black uppercase px-2 py-0.5 rounded bg-sky-500 text-slate-950">
+                                    👨‍🍳 Preparando
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-baseline gap-2 mt-1">
+                                <span className="text-3xl md:text-4xl font-black tracking-tight text-white tabular-nums">
+                                  {order.ticketNumber}
+                                </span>
+                                <span className="text-sm font-extrabold text-slate-200 truncate max-w-[140px]">
+                                  {order.customerOrTable}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="text-right shrink-0">
+                              <div
+                                className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-lg font-black tabular-nums shadow ${urgencyStyles.timerBadge}`}
+                              >
+                                ⏱️ {formatTimer(order.createdAt)}
+                              </div>
+                              <span className="block text-[11px] font-bold text-slate-300 mt-1">
+                                Entró: {formatTimeOfDay(order.createdAt)}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-white/10 text-xs font-bold">
+                            {order.orderType === 'comer_aqui' ? (
+                              <span className="text-emerald-300">🍽️ Para Comer Aquí</span>
+                            ) : (
+                              <span className="text-amber-300">🛍️ Para Llevar</span>
+                            )}
+                            <span className="bg-slate-950/80 text-white px-2.5 py-0.5 rounded-lg font-black">
+                              Total: {totalOrderUnits} uds
+                            </span>
+                          </div>
+                        </div>
+
+                        {order.note && (
+                          <div className="mx-3.5 mt-3 bg-amber-500/20 border-l-4 border-amber-400 px-3 py-2 rounded-r-xl">
+                            <p className="text-xs md:text-sm font-extrabold text-amber-200">
+                              ⚠️ NOTA: {order.note}
+                            </p>
+                          </div>
+                        )}
+
+                        <div className="px-3.5 pt-3">
+                          <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 mb-1">
+                            <span>Toca cada sabor al poner en bandeja:</span>
+                            <span className="text-emerald-400 font-black">
+                              {checkedUnits}/{totalOrderUnits} listos ({progressPct}%)
+                            </span>
+                          </div>
+                          <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-emerald-500 transition-all duration-300"
+                              style={{ width: `${progressPct}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="p-3.5 space-y-2">
+                          {order.items.map((item) => {
+                            const palette =
+                              COLOR_PALETTE[item.color] || COLOR_PALETTE.amber;
+                            const imgSrc = getRollImage(item);
+
+                            return (
+                              <button
+                                key={item.flavorId}
+                                type="button"
+                                onClick={() => {
+                                  soundEngine.playTapSound(item.checked ? 380 : 620);
+                                  onToggleOrderItemCheck(order.id, item.flavorId);
+                                }}
+                                className={`w-full rounded-xl border-2 p-2 flex items-center justify-between text-left transition-all active:scale-[0.98] ${
+                                  item.checked
+                                    ? 'bg-emerald-950/30 border-emerald-600/40 opacity-65'
+                                    : `bg-[#3b2313]/90 ${palette.border}`
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className="text-lg">
+                                    {item.checked ? '☑️' : '⬜'}
+                                  </span>
+                                  {imgSrc ? (
+                                    <img
+                                      src={imgSrc}
+                                      alt={item.flavorName}
+                                      className="w-9 h-9 rounded-full object-cover border border-amber-400/50 shrink-0"
+                                    />
+                                  ) : (
+                                    <span className="text-2xl shrink-0">{item.emoji}</span>
+                                  )}
+                                  <span
+                                    className={`font-black text-sm md:text-base uppercase leading-tight truncate ${
+                                      item.checked
+                                        ? 'line-through text-slate-400'
+                                        : 'text-[#fff8eb]'
+                                    }`}
+                                  >
+                                    {item.flavorName}
+                                  </span>
+                                </div>
+
+                                <span
+                                  className={`shrink-0 ml-2 min-w-[44px] h-10 px-2.5 rounded-xl flex items-center justify-center text-xl font-black tabular-nums ${
+                                    item.checked
+                                      ? 'bg-emerald-600 text-white'
+                                      : palette.badgeBg
+                                  }`}
+                                >
+                                  x{item.quantity}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="p-3.5 pt-0 mt-1">
+                        {order.status === 'pendiente' ? (
+                          <div className="grid grid-cols-12 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                soundEngine.playTapSound(540);
+                                onUpdateOrderStatus(order.id, 'preparando');
+                              }}
+                              className="col-span-8 py-3.5 px-3 rounded-xl bg-sky-500 hover:bg-sky-400 active:scale-95 text-slate-950 font-black text-sm md:text-base uppercase tracking-wide shadow-lg"
+                            >
+                              👨‍🍳 Preparar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                soundEngine.playOrderDispatchedSound();
+                                onUpdateOrderStatus(order.id, 'despachado');
+                              }}
+                              className="col-span-4 py-3.5 px-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-black text-xs uppercase shadow-lg"
+                            >
+                              ⚡ Listo
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              soundEngine.playOrderDispatchedSound();
+                              onUpdateOrderStatus(order.id, 'despachado');
+                            }}
+                            className="w-full py-4 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-400 hover:to-green-400 active:scale-95 text-slate-950 font-black text-base md:text-lg uppercase tracking-wide shadow-xl"
+                          >
+                            ✅ ¡Despachado! (Listo)
+                          </button>
+                        )}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </main>
+        </div>
+      );
+    }
+
+    // ============================================================================
+    // 6. VISTA 3: ADMIN, SALA CENTRALIZADA, MÉTRICAS Y PRESERVACIÓN DE SABORES
+    // ============================================================================
+    function AdminView({
+      flavors,
+      orders,
+      roomCode,
+      onSaveFlavors,
+      onResetDemoData,
+      onClearAllOrders,
+      onRestoreFactoryFlavors,
+      onSetRoomCode,
+    }) {
+      const [newName, setNewName] = useState('');
+      const [newCode, setNewCode] = useState('');
+      const [newColor, setNewColor] = useState('amber');
+      const [newEmoji, setNewEmoji] = useState('🥐');
+      const [newDateRange, setNewDateRange] = useState('23/10 AL 01/11');
+
+      const [editingId, setEditingId] = useState(null);
+      const [editName, setEditName] = useState('');
+      const [editCode, setEditCode] = useState('');
+      const [editColor, setEditColor] = useState('amber');
+      const [editEmoji, setEditEmoji] = useState('🥐');
+      const [editDateRange, setEditDateRange] = useState('');
+
+      const [inputRoom, setInputRoom] = useState(roomCode);
+      const [feedback, setFeedback] = useState(null);
+      const [showFactoryConfirm, setShowFactoryConfirm] = useState(false);
+
+      const handleAddFlavor = (e) => {
+        e.preventDefault();
+        if (!newName.trim()) return;
+        const code =
+          newCode.trim().toUpperCase() ||
+          newName.trim().slice(0, 3).toUpperCase();
+
+        const created = {
+          id: `flv-${Date.now()}`,
+          name: newName.trim().toUpperCase(),
+          shortCode: code,
+          color: newColor,
+          emoji: newEmoji || '🥐',
+          dateRange: newDateRange.trim() || '23/10 AL 01/11',
+          available: true,
+        };
+
+        soundEngine.playTapSound(600);
+        onSaveFlavors([...flavors, created]);
+        setNewName('');
+        setNewCode('');
+        setFeedback(`¡Sabor "${created.name}" agregado y guardado!`);
+        setTimeout(() => setFeedback(null), 3000);
+      };
+
+      const startEditFlavor = (flavor) => {
+        setEditingId(flavor.id);
+        setEditName(flavor.name);
+        setEditCode(flavor.shortCode);
+        setEditColor(flavor.color);
+        setEditEmoji(flavor.emoji);
+        setEditDateRange(flavor.dateRange || '23/10 AL 01/11');
+      };
+
+      const saveEditFlavor = (id) => {
+        if (!editName.trim()) return;
+        soundEngine.playTapSound(580);
+        onSaveFlavors(
+          flavors.map((f) =>
+            f.id === id
+              ? {
+                  ...f,
+                  name: editName.trim().toUpperCase(),
+                  shortCode: editCode.trim().toUpperCase() || f.shortCode,
+                  color: editColor,
+                  emoji: editEmoji,
+                  dateRange: editDateRange.trim() || f.dateRange,
+                }
+              : f
+          )
+        );
+        setEditingId(null);
+        setFeedback('Sabor actualizado con éxito');
+        setTimeout(() => setFeedback(null), 2500);
+      };
+
+      const toggleFlavor86 = (id) => {
+        soundEngine.play86Alert();
+        onSaveFlavors(
+          flavors.map((f) =>
+            f.id === id ? { ...f, available: !f.available } : f
+          )
+        );
+      };
+
+      const deleteFlavor = (id) => {
+        soundEngine.playTapSound(320);
+        onSaveFlavors(flavors.filter((f) => f.id !== id));
+      };
+
+      const handleUpdateRoom = (e) => {
+        e.preventDefault();
+        if (!inputRoom.trim()) return;
+        onSetRoomCode(inputRoom.trim());
+        setFeedback(`Conectado a la sala "${inputRoom.trim()}"`);
+        setTimeout(() => setFeedback(null), 3000);
+      };
+
+      const dispatchedOrders = orders.filter((o) => o.status === 'despachado');
+      const activeOrders = orders.filter((o) => o.status !== 'despachado');
+      const totalDispatchedUnits = dispatchedOrders.reduce(
+        (sum, o) => sum + o.items.reduce((s, i) => s + i.quantity, 0),
+        0
+      );
+      const totalAllUnits = orders.reduce(
+        (sum, o) => sum + o.items.reduce((s, i) => s + i.quantity, 0),
+        0
+      );
+
+      const dispatchDurationsSec = dispatchedOrders
+        .filter((o) => o.dispatchedAt && o.dispatchedAt > o.createdAt)
+        .map((o) => Math.round((o.dispatchedAt - o.createdAt) / 1000));
+
+      const avgDispatchSec =
+        dispatchDurationsSec.length > 0
+          ? Math.round(
+              dispatchDurationsSec.reduce((a, b) => a + b, 0) /
+                dispatchDurationsSec.length
+            )
+          : 0;
+
+      const formatDuration = (sec) => {
+        const m = Math.floor(sec / 60);
+        const s = sec % 60;
+        return `${m}m ${String(s).padStart(2, '0')}s`;
+      };
+
+      const flavorRanking = flavors
+        .map((f) => {
+          let soldDispatched = 0;
+          let soldActive = 0;
+          orders.forEach((o) => {
+            o.items.forEach((item) => {
+              if (item.flavorId === f.id || item.flavorName === f.name) {
+                if (o.status === 'despachado') soldDispatched += item.quantity;
+                else soldActive += item.quantity;
+              }
+            });
+          });
+          return {
+            flavor: f,
+            soldDispatched,
+            soldActive,
+            totalSold: soldDispatched + soldActive,
+          };
+        })
+        .sort((a, b) => b.totalSold - a.totalSold);
+
+      const maxFlavorSold = Math.max(1, ...flavorRanking.map((r) => r.totalSold));
+
+      const handleExportCSV = () => {
+        const rows = [
+          ['REPORTE DE CIERRE BULL MARKET - POS & KDS'],
+          ['Fecha Exportacion', new Date().toLocaleString()],
+          ['Total Comandas Despachadas', String(dispatchedOrders.length)],
+          ['Total Unidades Vendidas', String(totalAllUnits)],
+          ['Tiempo Promedio Despacho', formatDuration(avgDispatchSec)],
+          [],
+          ['RANKING POR SABOR'],
+          ['Codigo', 'Sabor', 'Despachados', 'En Cola', 'Total', 'Estado'],
+          ...flavorRanking.map((r) => [
+            r.flavor.shortCode,
+            r.flavor.name,
+            String(r.soldDispatched),
+            String(r.soldActive),
+            String(r.totalSold),
+            r.flavor.available ? 'DISPONIBLE' : 'AGOTADO (86)',
+          ]),
+          [],
+          ['DETALLE DE COMANDAS'],
+          ['Ticket', 'Cliente / Mesa', 'Modalidad', 'Estado', 'Hora', 'Detalle', 'Nota'],
+          ...orders.map((o) => [
+            o.ticketNumber,
+            o.customerOrTable,
+            o.orderType === 'comer_aqui' ? 'Comer Aqui' : 'Para Llevar',
+            o.status.toUpperCase(),
+            new Date(o.createdAt).toLocaleTimeString(),
+            o.items.map((i) => `${i.quantity}x ${i.flavorName}`).join(' | '),
+            o.note || '',
+          ]),
+        ];
+
+        const csvContent =
+          '\uFEFF' +
+          rows
+            .map((r) =>
+              r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')
+            )
+            .join('\n');
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `BullMarket-Cierre-${new Date().toISOString().slice(0, 10)}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      };
+
+      const handleCopyForGoogleSheets = () => {
+        const header = ['Sabor', 'Codigo', 'Despachados', 'En Cola', 'Total', 'Estado'].join('\t');
+        const lines = flavorRanking.map((r) =>
+          [
+            r.flavor.name,
+            r.flavor.shortCode,
+            r.soldDispatched,
+            r.soldActive,
+            r.totalSold,
+            r.flavor.available ? 'Disponible' : 'Agotado (86)',
+          ].join('\t')
+        );
+        navigator.clipboard.writeText([header, ...lines].join('\n')).then(() => {
+          setFeedback('✅ ¡Tabla copiada! Abre Google Sheets y presiona Ctrl+V');
+          setTimeout(() => setFeedback(null), 3500);
+        });
+      };
+
+      return (
+        <div className="max-w-[1650px] mx-auto p-3 md:p-6 space-y-6 text-white">
+          {/* BANNER DE SINCRONIZACIÓN CENTRALIZADA MULTI-DISPOSITIVO */}
+          <section className="bg-gradient-to-r from-sky-950/70 via-slate-900 to-amber-950/50 border-2 border-sky-500/40 rounded-3xl p-4 md:p-5 shadow-xl">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-sky-500/20 border border-sky-400 rounded-2xl text-2xl">
+                  🌐
+                </div>
+                <div>
+                  <h2 className="text-base md:text-lg font-black uppercase tracking-wide text-white flex items-center gap-2">
+                    Sincronización Centralizada Multi-Dispositivo
+                    <span className="bg-emerald-500 text-slate-950 text-xs font-black px-2.5 py-0.5 rounded-full">
+                      EN VIVO (NUBE)
+                    </span>
+                  </h2>
+                  <p className="text-xs text-slate-300 mt-0.5">
+                    Cualquier pedido o cambio realizado en un teléfono, tablet o PC se sincroniza al instante en todos los demás.
+                  </p>
+                </div>
+              </div>
+
+              <form onSubmit={handleUpdateRoom} className="flex items-center gap-2">
+                <div>
+                  <span className="block text-[10px] font-bold uppercase text-slate-400">
+                    Código de Sala / Tienda:
+                  </span>
+                  <input
+                    type="text"
+                    value={inputRoom}
+                    onChange={(e) => setInputRoom(e.target.value)}
+                    placeholder={DEFAULT_ROOM_CODE}
+                    className="h-10 rounded-xl bg-slate-950 border border-sky-500/50 px-3 text-xs font-black text-sky-300 uppercase tracking-wider"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="mt-4 h-10 px-4 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-black text-xs uppercase"
+                >
+                  Conectar
+                </button>
+              </form>
+            </div>
+          </section>
+
+          {/* MÉTRICAS Y NUEVO DÍA */}
+          <section className="bg-slate-900 border border-slate-800 rounded-3xl p-4 md:p-6 shadow-xl">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-5 border-b border-slate-800 pb-4">
+              <div>
+                <h2 className="text-lg md:text-xl font-black uppercase tracking-wide">
+                  📊 Métricas del Día &amp; Cierre de Caja
+                </h2>
+                <p className="text-xs text-slate-400">
+                  Estadísticas de despacho y ranking de sabores en vivo
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleExportCSV}
+                  className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs md:text-sm"
+                >
+                  📥 Exportar CSV (Excel / Sheets)
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopyForGoogleSheets}
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs md:text-sm border border-slate-700"
+                >
+                  📋 Copiar para Google Sheets
+                </button>
+              </div>
+            </div>
+
+            {feedback && (
+              <div className="mb-4 bg-emerald-500/20 border border-emerald-400 text-emerald-200 px-4 py-2.5 rounded-xl text-xs font-bold">
+                {feedback}
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6">
+              <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4">
+                <span className="text-xs font-bold uppercase text-slate-400 block">
+                  Comandas Despachadas
+                </span>
+                <div className="flex items-baseline gap-2 mt-1">
+                  <span className="text-3xl md:text-4xl font-black text-emerald-400 tabular-nums">
+                    {dispatchedOrders.length}
+                  </span>
+                  <span className="text-xs font-bold text-slate-400">
+                    (+{activeOrders.length} en cola)
+                  </span>
+                </div>
+              </div>
+
+              <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4">
+                <span className="text-xs font-bold uppercase text-slate-400 block">
+                  Total Unidades Vendidas
+                </span>
+                <div className="flex items-baseline gap-2 mt-1">
+                  <span className="text-3xl md:text-4xl font-black text-amber-400 tabular-nums">
+                    {totalAllUnits}
+                  </span>
+                  <span className="text-xs font-bold text-slate-400">
+                    ({totalDispatchedUnits} despachadas)
+                  </span>
+                </div>
+              </div>
+
+              <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4">
+                <span className="text-xs font-bold uppercase text-slate-400 block">
+                  Tiempo Promedio Despacho
+                </span>
+                <div className="flex items-baseline gap-2 mt-1">
+                  <span className="text-3xl md:text-4xl font-black text-sky-400 tabular-nums">
+                    {avgDispatchSec > 0 ? formatDuration(avgDispatchSec) : '02m 10s'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4">
+                <span className="text-xs font-bold uppercase text-slate-400 block">
+                  🏆 Sabor #1 del Día
+                </span>
+                <div className="mt-1 truncate">
+                  <span className="text-lg md:text-xl font-black text-white">
+                    {flavorRanking[0]
+                      ? `${flavorRanking[0].flavor.emoji} ${flavorRanking[0].flavor.name}`
+                      : 'Sin datos'}
+                  </span>
+                  {flavorRanking[0] && (
+                    <span className="block text-xs font-bold text-violet-300">
+                      {flavorRanking[0].totalSold} unidades
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* SEPARACIÓN CLARA: INICIAR NUEVO DÍA (CONSERVA SABORES) */}
+            <div className="bg-slate-950/80 border-2 border-amber-500/40 rounded-2xl p-4 mb-6">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-black uppercase text-amber-400 flex items-center gap-1.5">
+                    ☀️ Iniciar Nuevo Día / Reiniciar Jornada
+                  </h3>
+                  <p className="text-xs text-slate-300">
+                    Limpia las comandas a cero y reinicia el ticket a #001. <strong>Tus sabores creados nunca se borran.</strong>
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClearAllOrders();
+                      setFeedback('☀️ ¡Nuevo día iniciado! Comandas en 0. Todos los sabores creados se mantienen intactos.');
+                      setTimeout(() => setFeedback(null), 4000);
+                    }}
+                    className="py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs md:text-sm uppercase flex items-center gap-2 shadow-lg shadow-amber-500/25 active:scale-95"
+                  >
+                    ☀️ Iniciar Nuevo Día (Conserva Sabores)
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onResetDemoData();
+                      setFeedback('Comandas de prueba cargadas con tus sabores actuales.');
+                      setTimeout(() => setFeedback(null), 3000);
+                    }}
+                    className="py-3 px-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs uppercase border border-slate-700"
+                  >
+                    🔄 Cargar Demo
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowFactoryConfirm(true)}
+                    className="py-3 px-3 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 border border-rose-500/30 text-rose-300 font-bold text-xs uppercase"
+                  >
+                    ⚠️ Restaurar Fábrica
+                  </button>
+                </div>
+              </div>
+
+              {showFactoryConfirm && (
+                <div className="mt-4 p-3 bg-rose-950/80 border border-rose-500 rounded-xl flex items-center justify-between gap-3 text-xs">
+                  <span className="text-rose-200 font-bold">
+                    ¿Deseas restaurar los 10 sabores originales de fábrica de Bull Market?
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowFactoryConfirm(false)}
+                      className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 font-bold"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onRestoreFactoryFlavors();
+                        setShowFactoryConfirm(false);
+                        setFeedback('Sabores de fábrica restablecidos.');
+                        setTimeout(() => setFeedback(null), 3000);
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-rose-600 text-white font-black"
+                    >
+                      Sí, restaurar fábrica
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Ranking de Sabores */}
+            <div className="space-y-2.5">
+              {flavorRanking.map((row, idx) => {
+                const palette = COLOR_PALETTE[row.flavor.color] || COLOR_PALETTE.amber;
+                const widthPct = Math.max(4, Math.round((row.totalSold / maxFlavorSold) * 100));
+                const imgSrc = getRollImage(row.flavor);
+
+                return (
+                  <div
+                    key={row.flavor.id}
+                    className="bg-slate-950 border border-slate-800 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                  >
+                    <div className="flex items-center gap-3 min-w-[240px]">
+                      <span className="w-7 h-7 rounded-lg bg-slate-800 text-slate-300 font-black text-xs flex items-center justify-center">
+                        #{idx + 1}
+                      </span>
+                      {imgSrc ? (
+                        <img
+                          src={imgSrc}
+                          alt={row.flavor.name}
+                          className="w-10 h-10 rounded-full object-cover border border-amber-400/50 shrink-0"
+                        />
+                      ) : (
+                        <span className="text-2xl">{row.flavor.emoji}</span>
+                      )}
+                      <div>
+                        <p className="font-extrabold text-sm text-white uppercase">
+                          {row.flavor.name}
+                        </p>
+                        <span className="text-[11px] text-slate-400 font-semibold">
+                          {row.soldDispatched} despachados • {row.soldActive} en cola
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex-1 max-w-md">
+                      <div className="w-full h-3 bg-slate-900 rounded-full overflow-hidden border border-slate-800">
+                        <div
+                          className={`h-full ${palette.badgeBg.split(' ')[0]}`}
+                          style={{ width: `${widthPct}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <span
+                      className={`px-3 py-1 rounded-xl font-black text-base tabular-nums ${palette.badgeBg}`}
+                    >
+                      {row.totalSold} uds
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* GESTOR DE SABORES EN VIVO Y 86 */}
+          <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div className="lg:col-span-8 bg-slate-900 border border-slate-800 rounded-3xl p-4 md:p-6">
+              <h2 className="text-lg font-black uppercase tracking-wide mb-1">
+                ⚙️ Catálogo de Sabores ({flavors.length}) &amp; Control 86
+              </h2>
+              <p className="text-xs text-slate-400 mb-4">
+                Los sabores guardados son persistentes en todos tus dispositivos.
+              </p>
+
+              <div className="space-y-3">
+                {flavors.map((flavor) => {
+                  const palette = COLOR_PALETTE[flavor.color] || COLOR_PALETTE.amber;
+                  const isEditing = editingId === flavor.id;
+                  const imgSrc = getRollImage(flavor);
+
+                  return (
+                    <div
+                      key={flavor.id}
+                      className={`rounded-2xl border-2 p-3.5 ${
+                        flavor.available
+                          ? 'bg-slate-950 border-slate-800'
+                          : 'bg-rose-950/20 border-rose-500/50'
+                      }`}
+                    >
+                      {isEditing ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+                          <input
+                            type="text"
+                            value={editEmoji}
+                            onChange={(e) => setEditEmoji(e.target.value)}
+                            className="sm:col-span-1 h-10 rounded-xl bg-slate-900 border border-slate-700 text-center text-xl"
+                          />
+                          <input
+                            type="text"
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            className="sm:col-span-4 h-10 rounded-xl bg-slate-900 border border-slate-700 px-3 text-sm font-bold text-white uppercase"
+                          />
+                          <input
+                            type="text"
+                            maxLength={4}
+                            value={editCode}
+                            onChange={(e) => setEditCode(e.target.value)}
+                            className="sm:col-span-2 h-10 rounded-xl bg-slate-900 border border-slate-700 px-2 text-xs font-black uppercase text-center text-amber-400"
+                          />
+                          <select
+                            value={editColor}
+                            onChange={(e) => setEditColor(e.target.value)}
+                            className="sm:col-span-3 h-10 rounded-xl bg-slate-900 border border-slate-700 px-2 text-xs font-bold text-white"
+                          >
+                            {Object.entries(COLOR_PALETTE).map(([k, v]) => (
+                              <option key={k} value={k}>
+                                {v.label}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => saveEditFlavor(flavor.id)}
+                            className="sm:col-span-2 h-10 rounded-xl bg-emerald-500 text-slate-950 font-black text-xs"
+                          >
+                            💾 Guardar
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            {imgSrc ? (
+                              <img
+                                src={imgSrc}
+                                alt={flavor.name}
+                                className="w-12 h-12 rounded-full object-cover border-2 border-amber-400/50 shrink-0"
+                              />
+                            ) : (
+                              <span className="text-3xl">{flavor.emoji}</span>
+                            )}
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-extrabold text-base text-white uppercase">
+                                  {flavor.name}
+                                </span>
+                                <span
+                                  className={`text-[10px] font-black uppercase px-2 py-0.5 rounded ${palette.badgeBg}`}
+                                >
+                                  {flavor.dateRange || flavor.shortCode}
+                                </span>
+                              </div>
+                              <span className="text-xs text-slate-400">
+                                Color: {palette.label}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => toggleFlavor86(flavor.id)}
+                              className={`px-3.5 py-2 rounded-xl font-black text-xs uppercase border transition-all ${
+                                flavor.available
+                                  ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300 hover:bg-rose-500/20 hover:text-rose-300'
+                                  : 'bg-rose-600 border-rose-400 text-white shadow-lg'
+                              }`}
+                            >
+                              {flavor.available
+                                ? '✅ Disponible (Click para 86)'
+                                : '🚫 AGOTADO (86) - Click para Activar'}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => startEditFlavor(flavor)}
+                              className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-xs font-bold text-slate-300 border border-slate-700"
+                            >
+                              ✏️ Editar
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => deleteFlavor(flavor.id)}
+                              className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-rose-600 text-xs font-bold text-slate-400 hover:text-white border border-slate-700"
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="lg:col-span-4 space-y-6">
+              <form
+                onSubmit={handleAddFlavor}
+                className="bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-4"
+              >
+                <h3 className="text-base font-black uppercase tracking-wide text-amber-400">
+                  ➕ Agregar Nuevo Sabor al Menú
+                </h3>
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-400 mb-1">
+                    Nombre del Sabor
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    placeholder="Ej. MANJAR BLANCO"
+                    className="w-full h-11 rounded-xl bg-slate-950 border border-slate-700 px-3 text-sm font-bold text-white uppercase"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-slate-400 mb-1">
+                      Código (3 letras)
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={4}
+                      value={newCode}
+                      onChange={(e) => setNewCode(e.target.value)}
+                      placeholder="MAN"
+                      className="w-full h-11 rounded-xl bg-slate-950 border border-slate-700 px-3 text-sm font-black uppercase text-amber-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-slate-400 mb-1">
+                      Color del Botón
+                    </label>
+                    <select
+                      value={newColor}
+                      onChange={(e) => setNewColor(e.target.value)}
+                      className="w-full h-11 rounded-xl bg-slate-950 border border-slate-700 px-2.5 text-xs font-bold text-white"
+                    >
+                      {Object.entries(COLOR_PALETTE).map(([k, v]) => (
+                        <option key={k} value={k}>
+                          {v.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-400 mb-1">
+                    Rango de Fechas / Etiqueta
+                  </label>
+                  <input
+                    type="text"
+                    value={newDateRange}
+                    onChange={(e) => setNewDateRange(e.target.value)}
+                    placeholder="Ej. 23/10 AL 01/11"
+                    className="w-full h-10 rounded-xl bg-slate-950 border border-slate-700 px-3 text-xs font-bold text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-400 mb-1">
+                    Emoji
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {EMOJI_PRESETS.map((em) => (
+                      <button
+                        key={em}
+                        type="button"
+                        onClick={() => setNewEmoji(em)}
+                        className={`w-9 h-9 rounded-lg text-lg flex items-center justify-center border ${
+                          newEmoji === em
+                            ? 'bg-amber-500/30 border-amber-400'
+                            : 'bg-slate-950 border-slate-800'
+                        }`}
+                      >
+                        {em}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-sm uppercase tracking-wide shadow-lg"
+                >
+                  + Guardar Sabor en Catálogo
+                </button>
+              </form>
+            </div>
+          </section>
+        </div>
+      );
+    }
+
+    // ============================================================================
+    // 7. APLICACIÓN PRINCIPAL (SHELL CON NAVEGACIÓN Y MULTI-DISPOSITIVO)
+    // ============================================================================
+    function App() {
+      const [state, setState] = useState(() => getInitialState());
+      const [route, setRoute] = useState(() => {
+        const hash = window.location.hash.replace('#', '');
+        if (hash === '/panaderia' || hash === '/admin' || hash === '/dual') {
+          return hash;
+        }
+        return '/barra';
+      });
+      const [soundEnabled, setSoundEnabled] = useState(true);
+      const [incomingBanner, setIncomingBanner] = useState(null);
+      const prevOrderCountRef = useRef(state.orders.length);
+
+      useEffect(() => {
+        const unsubscribe = syncEngine.subscribe((newState, meta) => {
+          const hadLessOrders = newState.orders.length > prevOrderCountRef.current;
+          prevOrderCountRef.current = newState.orders.length;
+          setState(newState);
+
+          if (meta?.isNewOrder || hadLessOrders) {
+            soundEngine.playNewOrderBell();
+            const newest = newState.orders[newState.orders.length - 1];
+            if (newest) {
+              setIncomingBanner(
+                `🔔 ¡NUEVA COMANDA ${newest.ticketNumber} (${newest.customerOrTable}) EN COLA DE PANADERÍA!`
+              );
+              setTimeout(() => setIncomingBanner(null), 4000);
+            }
+          }
+        });
+        return () => unsubscribe();
+      }, []);
+
+      const navigate = (nextRoute) => {
+        soundEngine.playTapSound(500);
+        setRoute(nextRoute);
+        window.location.hash = nextRoute;
+      };
+
+      const toggleSound = () => {
+        const next = !soundEnabled;
+        setSoundEnabled(next);
+        soundEngine.enabled = next;
+        if (next) soundEngine.playNewOrderBell();
+      };
+
+      const handleCreateOrder = (orderData) => {
+        const newOrder = {
+          id: `ord-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          ticketNumber: orderData.ticketNumber,
+          customerOrTable: orderData.customerOrTable,
+          orderType: orderData.orderType,
+          note: orderData.note,
+          items: orderData.items,
+          status: 'pendiente',
+          createdAt: Date.now(),
+        };
+
+        const nextState = {
+          ...state,
+          orders: [...state.orders, newOrder],
+          nextTicketSeq: state.nextTicketSeq + 1,
+          lastUpdated: Date.now(),
+        };
+
+        prevOrderCountRef.current = nextState.orders.length;
+        syncEngine.publishState(nextState, {
+          isNewOrder: true,
+          newOrderTicket: newOrder.ticketNumber,
+        });
+
+        if (route === '/panaderia' || route === '/dual') {
+          soundEngine.playNewOrderBell();
+        }
+      };
+
+      const handleUpdateOrderStatus = (orderId, nextStatus) => {
+        const now = Date.now();
+        const updatedOrders = state.orders.map((ord) => {
+          if (ord.id !== orderId) return ord;
+          return {
+            ...ord,
+            status: nextStatus,
+            startedAt:
+              nextStatus === 'preparando' && !ord.startedAt ? now : ord.startedAt,
+            dispatchedAt: nextStatus === 'despachado' ? now : ord.dispatchedAt,
+          };
+        });
+        syncEngine.publishState({ ...state, orders: updatedOrders, lastUpdated: now });
+      };
+
+      const handleToggleOrderItemCheck = (orderId, flavorId) => {
+        const updatedOrders = state.orders.map((ord) => {
+          if (ord.id !== orderId) return ord;
+          const nextItems = ord.items.map((item) =>
+            item.flavorId === flavorId ? { ...item, checked: !item.checked } : item
+          );
+          return { ...ord, items: nextItems };
+        });
+        syncEngine.publishState({
+          ...state,
+          orders: updatedOrders,
+          lastUpdated: Date.now(),
+        });
+      };
+
+      const handleToggleFlavorAvailability = (flavorId) => {
+        const updatedFlavors = state.flavors.map((f) =>
+          f.id === flavorId ? { ...f, available: !f.available } : f
+        );
+        syncEngine.publishState({
+          ...state,
+          flavors: updatedFlavors,
+          lastUpdated: Date.now(),
+        });
+      };
+
+      const handleSaveFlavors = (nextFlavors) => {
+        syncEngine.publishState({
+          ...state,
+          flavors: nextFlavors,
+          lastUpdated: Date.now(),
+        });
+      };
+
+      // Iniciar Nuevo Día: LIMPIA COMANDAS Y CONSERVA TODOS LOS SABORES CREADOS
+      const handleClearAllOrders = () => {
+        soundEngine.playTapSound(350);
+        prevOrderCountRef.current = 0;
+        syncEngine.publishState({
+          ...state,
+          // Conserva siempre los sabores creados
+          orders: [],
+          nextTicketSeq: 1,
+          lastUpdated: Date.now(),
+        });
+      };
+
+      // Cargar Demo: CONSERVA LOS SABORES CREADOS
+      const handleResetDemoData = () => {
+        soundEngine.playNewOrderBell();
+        const currentFlavors = state.flavors && state.flavors.length > 0 ? state.flavors : INITIAL_FLAVORS;
+        const demoOrders = createInitialDemoOrders(currentFlavors);
+        prevOrderCountRef.current = demoOrders.length;
+        syncEngine.publishState({
+          ...state,
+          flavors: currentFlavors,
+          orders: demoOrders,
+          nextTicketSeq: demoOrders.length + 1,
+          lastUpdated: Date.now(),
+        });
+      };
+
+      // Restaurar Fábrica: SOLO SI SE CONFIRMA
+      const handleRestoreFactoryFlavors = () => {
+        soundEngine.play86Alert();
+        syncEngine.publishState({
+          ...state,
+          flavors: INITIAL_FLAVORS,
+          lastUpdated: Date.now(),
+        });
+      };
+
+      const activeOrderCount = state.orders.filter(
+        (o) => o.status === 'pendiente' || o.status === 'preparando'
+      ).length;
+
+      const totalPendingUnits = state.orders
+        .filter((o) => o.status === 'pendiente' || o.status === 'preparando')
+        .reduce((sum, o) => sum + o.items.reduce((s, i) => s + i.quantity, 0), 0);
+
+      return (
+        <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+          {/* HEADER SUPERIOR CON INDICADOR MULTI-DISPOSITIVO */}
+          <header className="sticky top-0 z-40 h-[64px] bg-slate-900/95 backdrop-blur-md border-b border-slate-800 px-3 md:px-6 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 shrink-0">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-orange-600 flex items-center justify-center text-slate-950 font-black text-xl shadow-md">
+                🐂
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-black text-base md:text-lg tracking-tight text-white">
+                    BULL MARKET
+                  </span>
+                  <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                    ● MULTI-DISPOSITIVO EN VIVO
+                  </span>
+                </div>
+                <span className="block text-[10px] font-bold uppercase tracking-wider text-amber-400/90 -mt-0.5">
+                  Sala: {state.roomCode || DEFAULT_ROOM_CODE}
+                </span>
+              </div>
+            </div>
+
+            <nav className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-2xl border border-slate-800">
+              <button
+                type="button"
+                onClick={() => navigate('/barra')}
+                className={`px-3 md:px-4 py-1.5 rounded-xl font-extrabold text-xs md:text-sm transition-all ${
+                  route === '/barra'
+                    ? 'bg-amber-500 text-slate-950 shadow-md'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                🍹 1. Barra
+              </button>
+
+              <button
+                type="button"
+                onClick={() => navigate('/panaderia')}
+                className={`px-3 md:px-4 py-1.5 rounded-xl font-extrabold text-xs md:text-sm flex items-center gap-1.5 transition-all ${
+                  route === '/panaderia'
+                    ? 'bg-orange-500 text-slate-950 shadow-md'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                <span>🔥 2. Panadería KDS</span>
+                {activeOrderCount > 0 && (
+                  <span
+                    className={`px-1.5 py-0.2 rounded-full text-[11px] font-black tabular-nums ${
+                      route === '/panaderia'
+                        ? 'bg-slate-950 text-amber-400'
+                        : 'bg-orange-500 text-slate-950'
+                    }`}
+                  >
+                    {activeOrderCount} ({totalPendingUnits})
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => navigate('/admin')}
+                className={`px-3 md:px-4 py-1.5 rounded-xl font-extrabold text-xs md:text-sm transition-all ${
+                  route === '/admin'
+                    ? 'bg-sky-500 text-slate-950 shadow-md'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                ⚙️ 3. Admin &amp; 86
+              </button>
+
+              <button
+                type="button"
+                onClick={() => navigate('/dual')}
+                className={`hidden xl:inline-flex px-3 py-1.5 rounded-xl font-extrabold text-xs transition-all ${
+                  route === '/dual'
+                    ? 'bg-emerald-500 text-slate-950 shadow-md'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                🖥️ Vista Dual
+              </button>
+            </nav>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => soundEngine.playNewOrderBell()}
+                className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 text-xs font-bold border border-slate-700"
+              >
+                🔔 Campana
+              </button>
+
+              <button
+                type="button"
+                onClick={toggleSound}
+                className={`px-2.5 py-1.5 rounded-xl border text-xs font-bold ${
+                  soundEnabled
+                    ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
+                    : 'bg-rose-500/15 border-rose-500/40 text-rose-400'
+                }`}
+              >
+                {soundEnabled ? '🔊 Audio ON' : '🔇 Mute'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const url = `${window.location.href.split('#')[0]}#/panaderia`;
+                  window.open(url, '_blank', 'width=1280,height=820');
+                }}
+                className="hidden md:inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700"
+              >
+                ↗️ Abrir KDS
+              </button>
+            </div>
+          </header>
+
+          {incomingBanner && (
+            <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 text-slate-950 font-black text-center py-2 px-4 text-sm uppercase tracking-wider shadow-lg animate-bounce z-50">
+              {incomingBanner}
+            </div>
+          )}
+
+          <div className="flex-1">
+            {route === '/barra' && (
+              <BarraView
+                flavors={state.flavors}
+                orders={state.orders}
+                nextTicketSeq={state.nextTicketSeq}
+                onCreateOrder={handleCreateOrder}
+              />
+            )}
+
+            {route === '/panaderia' && (
+              <PanaderiaView
+                flavors={state.flavors}
+                orders={state.orders}
+                onUpdateOrderStatus={handleUpdateOrderStatus}
+                onToggleOrderItemCheck={handleToggleOrderItemCheck}
+                onToggleFlavorAvailability={handleToggleFlavorAvailability}
+              />
+            )}
+
+            {route === '/admin' && (
+              <AdminView
+                flavors={state.flavors}
+                orders={state.orders}
+                roomCode={state.roomCode}
+                onSaveFlavors={handleSaveFlavors}
+                onResetDemoData={handleResetDemoData}
+                onClearAllOrders={handleClearAllOrders}
+                onRestoreFactoryFlavors={handleRestoreFactoryFlavors}
+                onSetRoomCode={(r) => syncEngine.setRoomCode(r)}
+              />
+            )}
+
+            {route === '/dual' && (
+              <div className="grid grid-cols-1 xl:grid-cols-12 divide-y xl:divide-y-0 xl:divide-x divide-slate-800">
+                <div className="xl:col-span-5 bg-slate-950">
+                  <div className="bg-amber-500/10 border-b border-amber-500/30 px-4 py-2 text-xs font-black uppercase text-amber-400">
+                    🍹 Vista Emisor de Barra (/barra)
+                  </div>
+                  <BarraView
+                    flavors={state.flavors}
+                    orders={state.orders}
+                    nextTicketSeq={state.nextTicketSeq}
+                    onCreateOrder={handleCreateOrder}
+                  />
+                </div>
+                <div className="xl:col-span-7 bg-slate-950">
+                  <div className="bg-orange-500/10 border-b border-orange-500/30 px-4 py-2 text-xs font-black uppercase text-orange-400">
+                    🔥 Vista KDS Panadería en Vivo (/panaderia)
+                  </div>
+                  <PanaderiaView
+                    flavors={state.flavors}
+                    orders={state.orders}
+                    onUpdateOrderStatus={handleUpdateOrderStatus}
+                    onToggleOrderItemCheck={handleToggleOrderItemCheck}
+                    onToggleFlavorAvailability={handleToggleFlavorAvailability}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
