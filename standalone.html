@@ -20,6 +20,7 @@
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
   <!-- Mapa de fotos circulares de New York Rolls en Base64 para carga instantánea y offline -->
   <script src="assets/roll_images_b64.js"></script>
   <style>
@@ -382,20 +383,39 @@
     // ============================================================================
     // 3. PERSISTENCIA DE SABORES Y SINCRONIZACIÓN CENTRALIZADA MULTI-DISPOSITIVO
     // ============================================================================
-    const STORAGE_STATE_KEY = 'bull_market_kds_state_v3';
-    const STORAGE_FLAVORS_KEY = 'bull_market_kds_flavors_v3';
-    const STORAGE_ROOM_KEY = 'bull_market_kds_room_v3';
-    const DEFAULT_ROOM_CODE = 'bull_market_kds_live_v3';
-    const LOCAL_CHANNEL_NAME = 'bull_market_kds_channel_v3';
+    const STORAGE_STATE_KEY = 'bull_market_kds_state_v4';
+    const STORAGE_FLAVORS_KEY = 'bull_market_kds_flavors_v4';
+    const STORAGE_ROOM_KEY = 'bull_market_kds_room_v4';
+    const DEFAULT_ROOM_CODE = 'BULL_MARKET_LIVE';
+    const LOCAL_CHANNEL_NAME = 'bull_market_kds_channel_v4';
 
-    // Limpiar cachés antiguos (v1/v2) que pudieran tener 1 solo sabor de prueba guardado
+    // Limpiar cachés antiguos (v1/v2/v3) para garantizar que PC, Tablets y Teléfonos arranquen en la misma sala
     try {
-      localStorage.removeItem('bull_market_kds_state_v1');
-      localStorage.removeItem('bull_market_kds_flavors_v1');
-      localStorage.removeItem('bull_market_kds_state_v2');
-      localStorage.removeItem('bull_market_kds_flavors_v2');
-      localStorage.removeItem('bull_market_kds_room_v2');
+      [
+        'bull_market_kds_state_v1',
+        'bull_market_kds_flavors_v1',
+        'bull_market_kds_state_v2',
+        'bull_market_kds_flavors_v2',
+        'bull_market_kds_room_v2',
+        'bull_market_kds_state_v3',
+        'bull_market_kds_flavors_v3',
+        'bull_market_kds_room_v3',
+      ].forEach((k) => localStorage.removeItem(k));
     } catch (e) {}
+
+    function normalizeRoomCode(raw) {
+      if (!raw || typeof raw !== 'string') return DEFAULT_ROOM_CODE;
+      const clean = raw.trim().toUpperCase();
+      if (
+        !clean ||
+        clean === 'BULL_MARKET_KDS_LIVE_V1' ||
+        clean === 'BULL_MARKET_KDS_LIVE_V2' ||
+        clean === 'BULL_MARKET_KDS_LIVE_V3'
+      ) {
+        return DEFAULT_ROOM_CODE;
+      }
+      return clean;
+    }
 
     // Blindaje total: garantiza que SIEMPRE estén presentes los 10 sabores oficiales de Bull Market con sus fotos
     function ensureAllCanonicalFlavors(inputList) {
@@ -407,6 +427,7 @@
         if (!saved) {
           return {
             ...base,
+            modCount: 1,
             imageUrl: getRollImage(base),
           };
         }
@@ -416,6 +437,7 @@
           ...saved,
           name: base.name,
           emoji: cleanEmoji,
+          modCount: saved.modCount || 1,
           imageKey: base.imageKey,
           imageUrl: getRollImage(base),
         };
@@ -432,6 +454,7 @@
         ) {
           completeFlavors.push({
             ...custom,
+            modCount: custom.modCount || 1,
             emoji: custom.emoji && custom.emoji !== '??' ? custom.emoji : '🥐',
             imageUrl: getRollImage(custom),
           });
@@ -462,7 +485,7 @@
 
     function getSavedRoomCode() {
       try {
-        return localStorage.getItem(STORAGE_ROOM_KEY) || DEFAULT_ROOM_CODE;
+        return normalizeRoomCode(localStorage.getItem(STORAGE_ROOM_KEY));
       } catch (e) {
         return DEFAULT_ROOM_CODE;
       }
@@ -488,6 +511,7 @@
           orderType: 'comer_aqui',
           note: 'Bien caliente',
           status: 'preparando',
+          modCount: 2,
           createdAt: now - (4 * 60 + 15) * 1000,
           startedAt: now - 2 * 60 * 1000,
           items: [
@@ -520,6 +544,7 @@
           orderType: 'para_llevar',
           note: 'Empaque separado',
           status: 'pendiente',
+          modCount: 1,
           createdAt: now - 85 * 1000,
           items: [
             {
@@ -561,6 +586,7 @@
           orderType: 'comer_aqui',
           note: '',
           status: 'pendiente',
+          modCount: 1,
           createdAt: now - 30 * 1000,
           items: [
             {
@@ -589,30 +615,32 @@
           if (parsed && Array.isArray(parsed.orders)) {
             return {
               ...parsed,
+              epoch: parsed.epoch || 1,
+              version: parsed.version || 1,
               flavors: ensureAllCanonicalFlavors(parsed.flavors || currentFlavors),
+              orders: (parsed.orders || []).map((o) => ({
+                ...o,
+                modCount: o.modCount || 1,
+                items: (o.items || []).map((it) => ({
+                  ...it,
+                  imageUrl: getRollImage(it),
+                })),
+              })),
+              announcements: Array.isArray(parsed.announcements) ? parsed.announcements : [],
               roomCode: currentRoom,
             };
           }
         }
       } catch (e) {}
 
+      // Arranca limpio sin órdenes demo falsas para que al conectar a la sala reciba las órdenes reales en vivo
       const initial = {
+        epoch: 1,
         version: 1,
         flavors: currentFlavors,
-        orders: createInitialDemoOrders(currentFlavors),
-        announcements: [
-          {
-            id: 'ann-init-1',
-            type: 'batch_ready',
-            flavorId: 'flv-avellanas',
-            flavorName: 'CREMA DE AVELLANAS',
-            quantity: 12,
-            text: '🔥 ¡TANDA LISTA! Salieron 12 rolls de CREMA DE AVELLANAS recién horneados',
-            createdAt: Date.now() - 5 * 60 * 1000,
-            active: true,
-          },
-        ],
-        nextTicketSeq: 4,
+        orders: [],
+        announcements: [],
+        nextTicketSeq: 1,
         lastUpdated: Date.now(),
         roomCode: currentRoom,
       };
@@ -625,14 +653,21 @@
       return initial;
     }
 
-    // Motor de sincronización centralizada en tiempo real (Multi-Dispositivo)
+    // ============================================================================
+    // MOTOR DE SINCRONIZACIÓN CENTRALIZADA TRIPLE-REDUNDANTE (PC <-> TELÉFONO <-> TABLET)
+    // 1. Cluster WebSockets MQTT en Tiempo Real (EMQX + HiveMQ con Retain=True, <60ms)
+    // 2. API Serverless en el mismo dominio Vercel (/api/state)
+    // 3. BroadcastChannel + localStorage para pestañas locales
+    // ============================================================================
     class RealtimeSyncEngine {
       constructor() {
         this.listeners = new Set();
         this.channel = null;
-        this.sseSource = null;
+        this.mqttClients = [];
+        this.pollInterval = null;
         this.deviceId = 'dev_' + Math.random().toString(36).substring(2, 9);
         this.currentState = getInitialState();
+        this.isConnected = false;
 
         if ('BroadcastChannel' in window) {
           this.channel = new BroadcastChannel(LOCAL_CHANNEL_NAME);
@@ -653,8 +688,20 @@
           }
         });
 
-        this.initCloudCentralizedSync();
-        this.initLocalServerSync();
+        // Al desbloquear el celular o volver a la pestaña, sincronizar al instante
+        if (typeof document !== 'undefined') {
+          document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+              this.forceSyncNow();
+            }
+          });
+          window.addEventListener('focus', () => {
+            this.forceSyncNow();
+          });
+        }
+
+        this.initRealtimeClusterSync();
+        this.initServerlessApiSync();
       }
 
       subscribe(listener) {
@@ -667,57 +714,134 @@
         this.listeners.forEach((fn) => fn(state, meta));
       }
 
+      getMqttTopic(room) {
+        const cleanRoom = normalizeRoomCode(room || this.currentState.roomCode);
+        return `bullmarket/kds/v4/${cleanRoom}`;
+      }
+
+      forceSyncNow() {
+        const room = normalizeRoomCode(this.currentState.roomCode);
+        this.fetchFromServerlessApi(room);
+      }
+
       handleIncomingState(incoming, meta) {
         if (!incoming) return;
 
-        // 1. MEZCLA CRDT DE ÓRDENES (Garantiza sincronización simultánea sin pérdida por desfase de reloj)
         const statusWeight = { pendiente: 1, preparando: 2, despachado: 3 };
-        const orderMap = new Map();
+        const curEpoch = this.currentState.epoch || 1;
+        const incEpoch = incoming.epoch || 1;
 
-        // Cargar órdenes existentes
-        (this.currentState.orders || []).forEach((o) => {
-          orderMap.set(o.id, { ...o });
-        });
+        // Si el mensaje viene de una época anterior (antes de "Iniciar Nuevo Día"), ignorar sus órdenes viejas
+        if (incEpoch < curEpoch) {
+          return;
+        }
 
-        let hasNewOrderAdded = false;
-        (incoming.orders || []).forEach((inc) => {
-          const loc = orderMap.get(inc.id);
-          if (!loc) {
-            orderMap.set(inc.id, { ...inc });
-            if (inc.status === 'pendiente' || inc.status === 'preparando') {
-              hasNewOrderAdded = true;
-            }
-          } else {
-            // Si el estado entrante es más avanzado o igual, actualizar
-            const incWeight = statusWeight[inc.status] || 0;
-            const locWeight = statusWeight[loc.status] || 0;
-            const chosenStatus = incWeight >= locWeight ? inc.status : loc.status;
-
-            // Mezclar items tachados (si cualquiera de los dos lo tachó, se conserva tachado)
-            const mergedItems = (loc.items || []).map((it, idx) => {
-              const incIt = inc.items && inc.items[idx];
-              return {
-                ...it,
-                checked: Boolean(it.checked || (incIt && incIt.checked)),
-              };
-            });
-
-            orderMap.set(inc.id, {
-              ...loc,
-              ...inc,
-              status: chosenStatus,
-              items: mergedItems,
-              startedAt: loc.startedAt || inc.startedAt,
-              dispatchedAt: loc.dispatchedAt || inc.dispatchedAt,
-            });
-          }
-        });
-
-        const mergedOrders = Array.from(orderMap.values()).sort(
-          (a, b) => a.createdAt - b.createdAt
+        const prevOrdersMap = new Map(
+          (this.currentState.orders || []).map((o) => [o.id, o])
         );
 
-        // Rehidratar órdenes con fotos
+        let mergedOrders = [];
+        let newlyAddedOrders = [];
+        let newlyPreparingOrders = [];
+        let newlyDispatchedOrders = [];
+        let hasOrderChanges = incEpoch > curEpoch;
+
+        if (incEpoch > curEpoch) {
+          // Otro dispositivo pulsó "Iniciar Nuevo Día (Limpiar Comandas)"
+          mergedOrders = Array.isArray(incoming.orders) ? [...incoming.orders] : [];
+          mergedOrders.forEach((inc) => {
+            if (inc.status === 'pendiente' || inc.status === 'preparando') {
+              newlyAddedOrders.push(inc);
+            }
+          });
+        } else {
+          // Misma época: Mezcla CRDT determinista con reloj lógico modCount por comanda
+          const orderMap = new Map();
+          (this.currentState.orders || []).forEach((o) => {
+            if (o && o.id) orderMap.set(o.id, { ...o });
+          });
+
+          (incoming.orders || []).forEach((inc) => {
+            if (!inc || !inc.id) return;
+            const loc = orderMap.get(inc.id);
+
+            if (!loc) {
+              orderMap.set(inc.id, { ...inc, modCount: inc.modCount || 1 });
+              hasOrderChanges = true;
+              if (inc.status === 'pendiente' || inc.status === 'preparando') {
+                newlyAddedOrders.push(inc);
+              } else if (inc.status === 'despachado') {
+                newlyDispatchedOrders.push(inc);
+              }
+            } else {
+              const incMod = inc.modCount || 1;
+              const locMod = loc.modCount || 1;
+
+              let nextOrd = loc;
+              if (incMod > locMod) {
+                nextOrd = {
+                  ...loc,
+                  ...inc,
+                  modCount: incMod,
+                  startedAt: inc.startedAt || loc.startedAt,
+                  dispatchedAt: inc.dispatchedAt || loc.dispatchedAt,
+                  delivered: Boolean(inc.delivered ?? loc.delivered),
+                };
+              } else if (incMod === locMod) {
+                const incW = statusWeight[inc.status] || 0;
+                const locW = statusWeight[loc.status] || 0;
+                const chosenStatus = incW >= locW ? inc.status : loc.status;
+
+                const mergedItems = (loc.items || inc.items || []).map((it, idx) => {
+                  const incIt = inc.items && inc.items[idx];
+                  return {
+                    ...it,
+                    ...(incIt || {}),
+                    checked: Boolean(it.checked || (incIt && incIt.checked)),
+                  };
+                });
+
+                nextOrd = {
+                  ...loc,
+                  ...inc,
+                  status: chosenStatus,
+                  items: mergedItems,
+                  startedAt: loc.startedAt || inc.startedAt,
+                  dispatchedAt: loc.dispatchedAt || inc.dispatchedAt,
+                  delivered: Boolean(loc.delivered || inc.delivered),
+                };
+              }
+
+              // Detectar si cambió estado o checks respecto a lo que teníamos localmente
+              const prevCheckedCount = (loc.items || []).filter((i) => i.checked).length;
+              const nextCheckedCount = (nextOrd.items || []).filter((i) => i.checked).length;
+
+              if (
+                nextOrd.status !== loc.status ||
+                nextCheckedCount !== prevCheckedCount ||
+                Boolean(nextOrd.delivered) !== Boolean(loc.delivered) ||
+                nextOrd.modCount !== loc.modCount
+              ) {
+                hasOrderChanges = true;
+              }
+
+              if (loc.status !== 'preparando' && nextOrd.status === 'preparando') {
+                newlyPreparingOrders.push(nextOrd);
+              }
+              if (loc.status !== 'despachado' && nextOrd.status === 'despachado') {
+                newlyDispatchedOrders.push(nextOrd);
+              }
+
+              orderMap.set(inc.id, nextOrd);
+            }
+          });
+
+          mergedOrders = Array.from(orderMap.values()).sort(
+            (a, b) => (a.createdAt || 0) - (b.createdAt || 0)
+          );
+        }
+
+        // Rehidratar órdenes con fotos Base64 locales
         const hydratedOrders = mergedOrders.map((o) => ({
           ...o,
           items: (o.items || []).map((it) => ({
@@ -726,27 +850,37 @@
           })),
         }));
 
-        // 2. REHIDRATAR Y UNIR SABORES (Los 10 sabores canónicos jamás se borran)
+        // 2. REHIDRATAR Y UNIR SABORES (Respetando modCount para cambios de Agotado 86)
         const baseList = ensureAllCanonicalFlavors(this.currentState.flavors);
         const incomingMap = new Map(
-          (Array.isArray(incoming.flavors) ? incoming.flavors : []).filter(Boolean).map((f) => [f.id, f])
+          (Array.isArray(incoming.flavors) ? incoming.flavors : [])
+            .filter(Boolean)
+            .map((f) => [f.id, f])
         );
 
+        let hasFlavorChanges = false;
         const combinedList = baseList.map((f) => {
           const incFlv = incomingMap.get(f.id);
           if (!incFlv) return f;
-          return {
-            ...f,
-            ...incFlv,
-            available: typeof incFlv.available === 'boolean' ? incFlv.available : f.available,
-          };
+          const incMod = incFlv.modCount || 1;
+          const locMod = f.modCount || 1;
+          if (incMod > locMod || (incMod === locMod && incFlv.available !== f.available)) {
+            if (incFlv.available !== f.available) hasFlavorChanges = true;
+            return {
+              ...f,
+              ...incFlv,
+              modCount: Math.max(incMod, locMod),
+              available: typeof incFlv.available === 'boolean' ? incFlv.available : f.available,
+            };
+          }
+          return f;
         });
 
-        // Agregar sabores personalizados nuevos que vengan de otro dispositivo
         if (Array.isArray(incoming.flavors)) {
           incoming.flavors.forEach((incFlv) => {
             if (incFlv && incFlv.id && !combinedList.some((c) => c.id === incFlv.id)) {
               combinedList.push(incFlv);
+              hasFlavorChanges = true;
             }
           });
         }
@@ -755,57 +889,140 @@
         saveFlavors(mergedFlavors);
 
         // 3. MEZCLAR ANUNCIOS DE PRODUCCIÓN Y AVISOS DE PANADERÍA A BARRA
-        const incomingAnnouncements = incoming.announcements || [];
-        const localAnnouncements = this.currentState.announcements || [];
+        const incomingAnnouncements = Array.isArray(incoming.announcements)
+          ? incoming.announcements
+          : [];
+        const localAnnouncements = Array.isArray(this.currentState.announcements)
+          ? this.currentState.announcements
+          : [];
+        const localAnnIds = new Set(localAnnouncements.map((a) => a && a.id));
+
         const annMap = new Map();
         [...incomingAnnouncements, ...localAnnouncements].forEach((a) => {
           if (a && a.id) annMap.set(a.id, a);
         });
         const mergedAnnouncements = Array.from(annMap.values())
-          .sort((a, b) => b.createdAt - a.createdAt)
+          .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
           .slice(0, 15);
 
-        // Detectar si hay un aviso nuevo
         const newestIncomingAnn = incomingAnnouncements[0];
         const isNewAnnouncement = Boolean(
           newestIncomingAnn &&
-          (!localAnnouncements.length || newestIncomingAnn.id !== localAnnouncements[0].id) &&
-          Date.now() - newestIncomingAnn.createdAt < 45000
+            !localAnnIds.has(newestIncomingAnn.id) &&
+            Date.now() - (newestIncomingAnn.createdAt || 0) < 120000
         );
 
-        const nextSeq = Math.max(
-          this.currentState.nextTicketSeq || 1,
-          incoming.nextTicketSeq || 1
-        );
+        const maxTicketNum = hydratedOrders.reduce((max, o) => {
+          const m = String(o.ticketNumber || '').match(/\d+/);
+          return m ? Math.max(max, parseInt(m[0], 10)) : max;
+        }, 0);
+
+        const nextSeq =
+          incEpoch > curEpoch
+            ? Math.max(incoming.nextTicketSeq || 1, maxTicketNum + 1)
+            : Math.max(
+                this.currentState.nextTicketSeq || 1,
+                incoming.nextTicketSeq || 1,
+                maxTicketNum + 1
+              );
+
+        if (
+          !hasOrderChanges &&
+          !hasFlavorChanges &&
+          !isNewAnnouncement &&
+          nextSeq === this.currentState.nextTicketSeq &&
+          mergedAnnouncements.length === localAnnouncements.length
+        ) {
+          return;
+        }
 
         const hydratedState = {
+          epoch: Math.max(curEpoch, incEpoch),
           version: Math.max(this.currentState.version || 0, incoming.version || 0) + 1,
           flavors: mergedFlavors,
           orders: hydratedOrders,
           announcements: mergedAnnouncements,
           nextTicketSeq: nextSeq,
           lastUpdated: Date.now(),
-          roomCode: this.currentState.roomCode,
+          roomCode: normalizeRoomCode(this.currentState.roomCode),
         };
 
         try {
           localStorage.setItem(STORAGE_STATE_KEY, JSON.stringify(hydratedState));
         } catch (e) {}
 
-        const isNewOrder = Boolean(meta?.isNewOrder || hasNewOrderAdded);
-
         this.notify(hydratedState, {
-          isNewOrder,
-          newOrderTicket: meta?.newOrderTicket,
+          isNewOrder: newlyAddedOrders.length > 0,
+          newOrder: newlyAddedOrders[newlyAddedOrders.length - 1] || null,
+          isOrderPreparing: newlyPreparingOrders.length > 0,
+          preparingOrder: newlyPreparingOrders[newlyPreparingOrders.length - 1] || null,
+          isOrderReady: newlyDispatchedOrders.length > 0,
+          readyOrder: newlyDispatchedOrders[newlyDispatchedOrders.length - 1] || null,
           isNewAnnouncement,
           announcement: isNewAnnouncement ? newestIncomingAnn : null,
         });
+      }
+
+      buildLeanState(state) {
+        const completeFlavors = ensureAllCanonicalFlavors(state.flavors);
+        const leanFlavors = completeFlavors.map((f) => {
+          const base = INITIAL_FLAVORS.find((b) => b.id === f.id);
+          return {
+            id: f.id,
+            name: base?.name || f.name,
+            shortCode: f.shortCode,
+            color: f.color,
+            available: f.available,
+            modCount: f.modCount || 1,
+            emoji: f.emoji && f.emoji !== '??' ? f.emoji : base?.emoji || '🥐',
+            imageKey: f.imageKey || base?.imageKey || '',
+          };
+        });
+
+        const activeOrders = (state.orders || []).filter((o) => o.status !== 'despachado');
+        const recentDispatched = (state.orders || [])
+          .filter((o) => o.status === 'despachado')
+          .slice(-20);
+
+        const leanOrders = [...activeOrders, ...recentDispatched].map((o) => ({
+          id: o.id,
+          ticketNumber: o.ticketNumber,
+          customerOrTable: o.customerOrTable,
+          orderType: o.orderType,
+          note: o.note,
+          status: o.status,
+          modCount: o.modCount || 1,
+          delivered: Boolean(o.delivered),
+          createdAt: o.createdAt,
+          startedAt: o.startedAt,
+          dispatchedAt: o.dispatchedAt,
+          items: (o.items || []).map((it) => ({
+            flavorId: it.flavorId,
+            flavorName: it.flavorName,
+            quantity: it.quantity,
+            checked: Boolean(it.checked),
+            color: it.color,
+          })),
+        }));
+
+        return {
+          epoch: state.epoch || 1,
+          version: state.version || 1,
+          roomCode: normalizeRoomCode(state.roomCode),
+          lastUpdated: state.lastUpdated || Date.now(),
+          nextTicketSeq: state.nextTicketSeq || 1,
+          flavors: leanFlavors,
+          orders: leanOrders,
+          announcements: (state.announcements || []).slice(0, 8),
+        };
       }
 
       publishState(nextState, meta) {
         const safeFlavors = ensureAllCanonicalFlavors(nextState.flavors);
         const stamped = {
           ...nextState,
+          epoch: nextState.epoch || this.currentState.epoch || 1,
+          roomCode: normalizeRoomCode(nextState.roomCode || this.currentState.roomCode),
           flavors: safeFlavors,
           version: (this.currentState.version || 0) + 1,
           lastUpdated: Date.now(),
@@ -827,218 +1044,206 @@
         }
 
         this.notify(stamped, meta);
-        this.broadcastToCloud(stamped, meta);
+        this.broadcastToCluster(stamped, meta);
       }
 
-      initCloudCentralizedSync() {
-        if (this.sseSource) {
-          this.sseSource.close();
-          this.sseSource = null;
+      // 1. CLUSTER WEBSOCKETS MQTT (EMQX + HiveMQ con Retain=True para sincronización en <60ms)
+      initRealtimeClusterSync() {
+        if (this.mqttClients && this.mqttClients.length > 0) {
+          this.mqttClients.forEach((c) => {
+            try {
+              c.end(true);
+            } catch (e) {}
+          });
+          this.mqttClients = [];
         }
+
+        if (typeof window === 'undefined' || !window.mqtt) return;
+
+        const room = normalizeRoomCode(this.currentState.roomCode);
+        const topic = this.getMqttTopic(room);
+        const brokers = [
+          'wss://broker.emqx.io:8084/mqtt',
+          'wss://broker.hivemq.com:8884/mqtt',
+        ];
+
+        brokers.forEach((brokerUrl, idx) => {
+          try {
+            const client = window.mqtt.connect(brokerUrl, {
+              clientId: `bm_${this.deviceId}_${idx}_${Math.random().toString(16).slice(2, 6)}`,
+              clean: true,
+              connectTimeout: 5000,
+              reconnectPeriod: 2000,
+              keepalive: 30,
+            });
+
+            client.on('connect', () => {
+              this.isConnected = true;
+              client.subscribe(topic, { qos: 1 }, (err) => {
+                if (!err && this.currentState.orders.length > 0) {
+                  // Si este dispositivo ya tiene pedidos activos, compartirlos con la sala
+                  const lean = this.buildLeanState(this.currentState);
+                  client.publish(
+                    topic,
+                    JSON.stringify({
+                      deviceId: this.deviceId,
+                      state: lean,
+                      meta: { action: 'hello_sync' },
+                    }),
+                    { qos: 1, retain: true }
+                  );
+                }
+              });
+            });
+
+            client.on('message', (receivedTopic, messageBuffer) => {
+              if (receivedTopic !== topic) return;
+              try {
+                const rawStr = messageBuffer.toString();
+                if (!rawStr || !rawStr.startsWith('{')) return;
+                const parsed = JSON.parse(rawStr);
+                if (parsed && parsed.state) {
+                  this.handleIncomingState(parsed.state, parsed.meta);
+                }
+              } catch (err) {}
+            });
+
+            this.mqttClients.push(client);
+          } catch (err) {}
+        });
+      }
+
+      // 2. API SERVERLESS VERCEL (/api/state) + SERVIDOR LOCAL
+      initServerlessApiSync() {
         if (this.pollInterval) {
           clearInterval(this.pollInterval);
           this.pollInterval = null;
         }
 
-        const room = this.currentState.roomCode || DEFAULT_ROOM_CODE;
+        const room = normalizeRoomCode(this.currentState.roomCode);
+        this.fetchFromServerlessApi(room);
 
-        // Conexión Server-Sent Events en tiempo real global
-        try {
-          const es = new EventSource(`https://ntfy.sh/${encodeURIComponent(room)}/sse`);
-          es.onmessage = async (event) => {
-            try {
-              const payload = JSON.parse(event.data);
-              if (!payload) return;
-
-              // Caso 1: ntfy.sh convirtió el mensaje en attachment por exceder 4KB
-              if (payload.attachment && payload.attachment.url) {
-                try {
-                  const attRes = await fetch(payload.attachment.url);
-                  if (attRes.ok) {
-                    const parsed = await attRes.json();
-                    if (parsed && parsed.deviceId !== this.deviceId && parsed.state) {
-                      this.handleIncomingState(parsed.state, parsed.meta);
-                    }
-                  }
-                } catch (e) {}
-                return;
-              }
-
-              // Caso 2: Viene en message directo
-              if (payload.message && typeof payload.message === 'string' && payload.message.startsWith('{')) {
-                const parsed = JSON.parse(payload.message);
-                if (parsed && parsed.deviceId !== this.deviceId && parsed.state) {
-                  this.handleIncomingState(parsed.state, parsed.meta);
-                }
-              }
-            } catch (err) {}
-          };
-          this.sseSource = es;
-        } catch (err) {}
-
-        // Traer el estado más reciente guardado en la nube de inmediato
-        this.fetchCloudState(room);
-
-        // Polling constante cada 4 segundos como seguro por si el teléfono bloquea pantalla
         this.pollInterval = setInterval(() => {
-          this.fetchCloudState(room);
-        }, 4000);
+          const activeRoom = normalizeRoomCode(this.currentState.roomCode);
+          this.fetchFromServerlessApi(activeRoom);
+        }, 2000);
       }
 
-      initLocalServerSync() {
-        if (typeof window !== 'undefined' && window.location && window.location.protocol && window.location.protocol.startsWith('http')) {
-          const pollLocal = async () => {
-            try {
-              const res = await fetch('/api/state');
-              if (res.ok) {
-                const data = await res.json();
-                if (data && data.state && data.state.lastUpdated > (this.currentState.lastUpdated || 0) && data.deviceId !== this.deviceId) {
-                  this.handleIncomingState(data.state, data.meta || { action: 'local_sync' });
-                }
-              }
-            } catch (err) {}
-          };
-          pollLocal();
-          setInterval(pollLocal, 2500);
+      async fetchFromServerlessApi(room) {
+        if (
+          typeof window === 'undefined' ||
+          !window.location ||
+          !window.location.protocol.startsWith('http')
+        ) {
+          return;
         }
-      }
-
-      async fetchCloudState(room) {
         try {
-          const res = await fetch(`https://ntfy.sh/${encodeURIComponent(room)}/json?poll=1&since=12h`);
-          if (!res.ok) return;
-          const text = await res.text();
-          const lines = text.trim().split('\n');
-          for (let i = lines.length - 1; i >= 0; i--) {
-            try {
-              const item = JSON.parse(lines[i]);
-              if (!item) continue;
-
-              // Caso attachment en historial
-              if (item.attachment && item.attachment.url) {
-                try {
-                  const attRes = await fetch(item.attachment.url);
-                  if (attRes.ok) {
-                    const parsed = await attRes.json();
-                    if (parsed && parsed.deviceId !== this.deviceId && parsed.state) {
-                      this.handleIncomingState(parsed.state, parsed.meta);
-                      break;
-                    }
-                  }
-                } catch (e) {}
-                continue;
-              }
-
-              // Caso mensaje directo
-              if (item.message && typeof item.message === 'string' && item.message.startsWith('{')) {
-                const parsed = JSON.parse(item.message);
-                if (parsed && parsed.deviceId !== this.deviceId && parsed.state) {
-                  this.handleIncomingState(parsed.state, parsed.meta);
-                  break;
-                }
-              }
-            } catch (err) {}
+          const res = await fetch(
+            `/api/state?room=${encodeURIComponent(room)}&t=${Date.now()}`,
+            {
+              method: 'GET',
+              headers: { 'Cache-Control': 'no-cache' },
+            }
+          );
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data.state) {
+              this.handleIncomingState(data.state, data.meta);
+            } else if (data && data.ok && !data.state && this.currentState.orders.length > 0) {
+              // El servidor recién despertó vacío y nosotros tenemos comandas activas: subirlas
+              this.postToServerlessApi(this.currentState, { action: 'seed_server' });
+            }
           }
         } catch (err) {}
       }
 
-      async broadcastToCloud(state, meta) {
-        // Enviar a servidor local si estamos en http (ej. iniciar-servidor.bat)
-        if (typeof window !== 'undefined' && window.location && window.location.protocol && window.location.protocol.startsWith('http')) {
-          try {
-            fetch('/api/state', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ state, meta, deviceId: this.deviceId }),
-            }).catch(() => {});
-          } catch (err) {}
+      async postToServerlessApi(state, meta) {
+        if (
+          typeof window === 'undefined' ||
+          !window.location ||
+          !window.location.protocol.startsWith('http')
+        ) {
+          return;
         }
-
-        const room = state.roomCode || DEFAULT_ROOM_CODE;
         try {
-          // Comprimir y sanear payload garantizando que los 10 sabores canónicos se envíen siempre
-          const completeFlavors =
-            Array.isArray(state.flavors) && state.flavors.length >= INITIAL_FLAVORS.length
-              ? state.flavors
-              : getSavedFlavors();
-
-          const leanFlavors = completeFlavors.map((f) => {
-            const base = INITIAL_FLAVORS.find((b) => b.id === f.id);
-            return {
-              id: f.id,
-              name: base?.name || f.name,
-              shortCode: f.shortCode,
-              color: f.color,
-              available: f.available,
-              emoji: f.emoji && f.emoji !== '??' ? f.emoji : base?.emoji || '🥐',
-              imageKey: f.imageKey || base?.imageKey || '',
-            };
-          });
-
-          const activeOrders = (state.orders || []).filter((o) => o.status !== 'despachado');
-          const recentDispatched = (state.orders || []).filter((o) => o.status === 'despachado').slice(-15);
-          const leanOrders = [...activeOrders, ...recentDispatched].map((o) => ({
-            id: o.id,
-            ticketNumber: o.ticketNumber,
-            customerOrTable: o.customerOrTable,
-            orderType: o.orderType,
-            note: o.note,
-            status: o.status,
-            createdAt: o.createdAt,
-            startedAt: o.startedAt,
-            dispatchedAt: o.dispatchedAt,
-            items: (o.items || []).map((it) => ({
-              flavorId: it.flavorId,
-              flavorName: it.flavorName,
-              quantity: it.quantity,
-              checked: it.checked,
-              color: it.color,
-            })),
-          }));
-
-          const leanState = {
-            version: state.version || 1,
-            roomCode: state.roomCode,
-            lastUpdated: state.lastUpdated,
-            nextTicketSeq: state.nextTicketSeq,
-            flavors: leanFlavors,
-            orders: leanOrders,
-            announcements: (state.announcements || []).slice(0, 6),
-          };
-
-          const payload = JSON.stringify({
-            deviceId: this.deviceId,
-            state: leanState,
-            meta,
-          });
-
-          await fetch(`https://ntfy.sh/${encodeURIComponent(room)}`, {
+          const room = normalizeRoomCode(state.roomCode);
+          const leanState = this.buildLeanState(state);
+          const res = await fetch(`/api/state?room=${encodeURIComponent(room)}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: payload,
+            body: JSON.stringify({
+              deviceId: this.deviceId,
+              state: leanState,
+              meta,
+            }),
           });
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data.state) {
+              this.handleIncomingState(data.state, data.meta);
+            }
+          }
         } catch (err) {}
       }
 
+      broadcastToCluster(state, meta) {
+        const room = normalizeRoomCode(state.roomCode);
+        const topic = this.getMqttTopic(room);
+        const leanState = this.buildLeanState(state);
+        const payload = JSON.stringify({
+          deviceId: this.deviceId,
+          state: leanState,
+          meta,
+        });
+
+        // Publicar por WebSockets MQTT (con retain: true para que cualquier dispositivo nuevo reciba la foto actual al entrar)
+        if (this.mqttClients && this.mqttClients.length > 0) {
+          this.mqttClients.forEach((client) => {
+            try {
+              if (client && client.connected) {
+                client.publish(topic, payload, { qos: 1, retain: true });
+              }
+            } catch (e) {}
+          });
+        }
+
+        // Publicar a /api/state en Vercel / servidor local
+        this.postToServerlessApi(state, meta);
+      }
+
       setRoomCode(newRoom) {
-        const clean = newRoom.trim() || DEFAULT_ROOM_CODE;
+        const clean = normalizeRoomCode(newRoom);
         try {
           localStorage.setItem(STORAGE_ROOM_KEY, clean);
         } catch (e) {}
 
         const next = { ...this.currentState, roomCode: clean, lastUpdated: Date.now() };
         this.publishState(next);
-        this.initCloudCentralizedSync();
+        this.initRealtimeClusterSync();
+        this.initServerlessApiSync();
       }
     }
 
     const syncEngine = new RealtimeSyncEngine();
 
     // ============================================================================
-    // 4. VISTA 1: EMISOR DE BARRA (/barra) - TOUCH ULTRA RÁPIDO CON FOTOS REALES
+    // 4. VISTA 1: EMISOR DE BARRA / MESEROS / CAJA (/barra) + SEGUIMIENTO EN VIVO
     // ============================================================================
-    function BarraView({ flavors, orders, nextTicketSeq, announcements = [], onCreateOrder }) {
-      const formattedSeq = `#${String(nextTicketSeq).padStart(3, '0')}`;
+    function BarraView({
+      flavors,
+      orders,
+      nextTicketSeq,
+      announcements = [],
+      onCreateOrder,
+      onToggleOrderDelivered,
+    }) {
+      const maxExistingNum = orders.reduce((max, o) => {
+        const m = String(o.ticketNumber || '').match(/\d+/);
+        return m ? Math.max(max, parseInt(m[0], 10)) : max;
+      }, 0);
+      const effectiveSeq = Math.max(nextTicketSeq || 1, maxExistingNum + 1);
+      const formattedSeq = `#${String(effectiveSeq).padStart(3, '0')}`;
+
       const [customTicket, setCustomTicket] = useState('');
       const [customerOrTable, setCustomerOrTable] = useState('');
       const [orderType, setOrderType] = useState('comer_aqui');
@@ -1046,6 +1251,7 @@
       const [cart, setCart] = useState({});
       const [flashSuccess, setFlashSuccess] = useState(null);
       const [dismissedAnnId, setDismissedAnnId] = useState(null);
+      const [trackingFilter, setTrackingFilter] = useState('todos'); // 'todos' | 'cocina' | 'salieron'
       const [now, setNow] = useState(Date.now());
 
       useEffect(() => {
@@ -1125,8 +1331,8 @@
         });
 
         soundEngine.playTapSound(740);
-        setFlashSuccess(`✅ Comanda ${finalTicket} enviada a Panadería (${totalUnits} uds)`);
-        setTimeout(() => setFlashSuccess(null), 2600);
+        setFlashSuccess(`✅ Comanda ${finalTicket} enviada en vivo a Panadería (${totalUnits} uds)`);
+        setTimeout(() => setFlashSuccess(null), 2800);
 
         setCart({});
         setCustomTicket('');
@@ -1134,9 +1340,19 @@
         setNote('');
       };
 
-      const recentOrders = [...orders]
-        .sort((a, b) => b.createdAt - a.createdAt)
-        .slice(0, 12);
+      const sortedOrders = [...orders].sort((a, b) => b.createdAt - a.createdAt);
+      const inKitchenOrders = sortedOrders.filter(
+        (o) => o.status === 'pendiente' || o.status === 'preparando'
+      );
+      const readyOrders = sortedOrders.filter((o) => o.status === 'despachado');
+      const undeliveredReadyCount = readyOrders.filter((o) => !o.delivered).length;
+
+      const displayedOrders =
+        trackingFilter === 'cocina'
+          ? inKitchenOrders
+          : trackingFilter === 'salieron'
+          ? readyOrders
+          : sortedOrders.slice(0, 20);
 
       const formatElapsed = (timestamp) => {
         const diffSec = Math.max(0, Math.floor((now - timestamp) / 1000));
@@ -1150,8 +1366,8 @@
       );
 
       return (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 p-3 md:p-5 max-w-[1650px] mx-auto">
-          {/* TECLADO CON FOTO REAL DE CADA ROLLO */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 p-3 md:p-5 max-w-[1680px] mx-auto">
+          {/* COLUMNA IZQUIERDA: TECLADO DE SABORES Y DATOS DEL PEDIDO */}
           <div className="lg:col-span-7 xl:col-span-8 flex flex-col gap-4">
             {/* MARQUESINA / BANNER EN VIVO DE PANADERÍA */}
             {activeAnn && (
@@ -1328,7 +1544,7 @@
               })}
             </div>
 
-            {/* Datos de Comanda */}
+            {/* Datos de Comanda (Mesero / Cajero) */}
             <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
                 <div className="sm:col-span-3">
@@ -1346,13 +1562,13 @@
 
                 <div className="sm:col-span-5">
                   <label className="block text-xs font-bold uppercase text-slate-400 mb-1">
-                    👤 Cliente / Mesa
+                    👤 Mesa / Cliente / Mesero
                   </label>
                   <input
                     type="text"
                     value={customerOrTable}
                     onChange={(e) => setCustomerOrTable(e.target.value)}
-                    placeholder="Ej. Mesa 5, Ana, Barra..."
+                    placeholder="Ej. Mesa 4, Caja, Juan..."
                     className="w-full h-12 rounded-xl bg-slate-950 border border-slate-700 px-3 text-base font-bold text-white placeholder:text-slate-500 focus:outline-none focus:border-sky-400"
                   />
                 </div>
@@ -1396,27 +1612,36 @@
 
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="text-[11px] font-bold uppercase text-slate-500 mr-1">
-                  Ubicación rápida:
+                  Selección rápida:
                 </span>
-                {['Barra 1', 'Barra 2', 'Mesa 1', 'Mesa 2', 'Mesa 3', 'Terraza', 'VIP'].map(
-                  (preset) => (
-                    <button
-                      key={preset}
-                      type="button"
-                      onClick={() => {
-                        soundEngine.playTapSound(480);
-                        setCustomerOrTable(preset);
-                      }}
-                      className={`text-xs font-bold px-2.5 py-1 rounded-lg border transition-colors ${
-                        customerOrTable === preset
-                          ? 'bg-sky-500 text-slate-950 border-sky-400'
-                          : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-600'
-                      }`}
-                    >
-                      {preset}
-                    </button>
-                  )
-                )}
+                {[
+                  'Caja / Barra',
+                  'Barra 1',
+                  'Barra 2',
+                  'Mesa 1',
+                  'Mesa 2',
+                  'Mesa 3',
+                  'Mesa 4',
+                  'Mesa 5',
+                  'Terraza',
+                  'VIP',
+                ].map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => {
+                      soundEngine.playTapSound(480);
+                      setCustomerOrTable(preset);
+                    }}
+                    className={`text-xs font-bold px-2.5 py-1 rounded-lg border transition-colors ${
+                      customerOrTable === preset
+                        ? 'bg-sky-500 text-slate-950 border-sky-400'
+                        : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-600'
+                    }`}
+                  >
+                    {preset}
+                  </button>
+                ))}
               </div>
 
               <div>
@@ -1456,14 +1681,15 @@
             </div>
           </div>
 
-          {/* RESUMEN DE COMANDA + BOTÓN GIGANTE + HISTORIAL */}
+          {/* COLUMNA DERECHA: CARRITO + SEGUIMIENTO EN VIVO DE PRODUCCIÓN Y PEDIDOS */}
           <div className="lg:col-span-5 xl:col-span-4 flex flex-col gap-4">
+            {/* Carrito de la Comanda Actual */}
             <div className="bg-slate-900 border-2 border-slate-800 rounded-2xl p-4 flex flex-col justify-between shadow-xl">
               <div>
                 <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-3">
                   <div>
                     <span className="text-xs font-bold uppercase text-slate-400 block">
-                      Comanda Actual
+                      Comanda Actual (Mesero / Caja)
                     </span>
                     <div className="flex items-center gap-2">
                       <span className="text-2xl font-black text-amber-400 tabular-nums">
@@ -1491,16 +1717,16 @@
                 </div>
 
                 {totalUnits === 0 ? (
-                  <div className="py-8 text-center border border-dashed border-slate-800 rounded-xl bg-slate-950/50 my-2">
+                  <div className="py-6 text-center border border-dashed border-slate-800 rounded-xl bg-slate-950/50 my-2">
                     <p className="text-slate-400 font-bold text-sm">
                       Toca los sabores para armar la comanda
                     </p>
                     <p className="text-xs text-slate-500 mt-1">
-                      Se enviará en tiempo real al KDS de Panadería en cualquier dispositivo
+                      Sincronización instantánea entre Teléfonos, Tablets y PC
                     </p>
                   </div>
                 ) : (
-                  <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1 my-2">
+                  <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 my-2">
                     {flavors
                       .filter((f) => (cart[f.id] || 0) > 0)
                       .map((f) => {
@@ -1577,79 +1803,232 @@
               </button>
             </div>
 
-            {/* Historial en Vivo */}
-            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 flex-1 flex flex-col">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-300">
-                  ⏱️ Estado en Vivo en Panadería
-                </h3>
-                <span className="text-xs font-bold text-slate-400">
-                  Últimas {recentOrders.length}
-                </span>
+            {/* MONITOR DE SEGUIMIENTO EN VIVO: ¿YA SALIÓ O SIGUE EN COCINA? */}
+            <div className="bg-slate-900/95 border-2 border-slate-800 rounded-2xl p-4 flex-1 flex flex-col shadow-xl">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <div>
+                  <h3 className="text-sm font-black uppercase tracking-wider text-white flex items-center gap-1.5">
+                    <span>📡 Seguimiento de Pedidos en Vivo</span>
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Revisa en tiempo real si el pedido está en cola, preparándose o si ya salió
+                  </p>
+                </div>
               </div>
 
-              <div className="space-y-2.5 max-h-[360px] overflow-y-auto pr-1">
-                {recentOrders.map((ord) => {
-                  const count = ord.items.reduce((s, i) => s + i.quantity, 0);
-                  return (
-                    <div
-                      key={ord.id}
-                      className={`rounded-xl border p-3 transition-all ${
-                        ord.status === 'despachado'
-                          ? 'bg-emerald-950/25 border-emerald-500/40'
-                          : ord.status === 'preparando'
-                          ? 'bg-sky-950/30 border-sky-500/50'
-                          : 'bg-slate-950 border-slate-800'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <span className="font-black text-base text-white tabular-nums">
-                            {ord.ticketNumber}
-                          </span>
-                          <span className="text-xs font-bold text-slate-300 truncate max-w-[115px]">
-                            {ord.customerOrTable}
-                          </span>
-                          <span className="text-[11px] font-bold bg-slate-800 text-slate-300 px-2 py-0.5 rounded-md">
-                            {count} uds
-                          </span>
+              {/* Pestañas de Filtro de Seguimiento */}
+              <div className="grid grid-cols-3 gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800 mb-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playTapSound(450);
+                    setTrackingFilter('todos');
+                  }}
+                  className={`py-2 px-2 rounded-lg text-xs font-black uppercase transition-all ${
+                    trackingFilter === 'todos'
+                      ? 'bg-slate-800 text-white shadow'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  📋 Todos ({orders.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playTapSound(450);
+                    setTrackingFilter('cocina');
+                  }}
+                  className={`py-2 px-2 rounded-lg text-xs font-black uppercase transition-all ${
+                    trackingFilter === 'cocina'
+                      ? 'bg-amber-500 text-slate-950 shadow'
+                      : 'text-amber-300/80 hover:text-amber-300'
+                  }`}
+                >
+                  ⏳ Cocina ({inKitchenOrders.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playTapSound(450);
+                    setTrackingFilter('salieron');
+                  }}
+                  className={`py-2 px-2 rounded-lg text-xs font-black uppercase transition-all flex items-center justify-center gap-1 ${
+                    trackingFilter === 'salieron'
+                      ? 'bg-emerald-500 text-slate-950 shadow'
+                      : 'text-emerald-400 hover:text-emerald-300'
+                  }`}
+                >
+                  <span>✅ Salieron ({readyOrders.length})</span>
+                  {undeliveredReadyCount > 0 && (
+                    <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[10px] animate-bounce">
+                      {undeliveredReadyCount}
+                    </span>
+                  )}
+                </button>
+              </div>
+
+              {displayedOrders.length === 0 ? (
+                <div className="py-8 text-center border border-dashed border-slate-800 rounded-xl bg-slate-950/40 my-1">
+                  <p className="text-slate-400 font-bold text-xs uppercase">
+                    {trackingFilter === 'salieron'
+                      ? 'Aún no han salido pedidos despachados'
+                      : trackingFilter === 'cocina'
+                      ? 'No hay pedidos pendientes en cocina'
+                      : 'Sin comandas registradas en este turno'}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2.5 max-h-[420px] overflow-y-auto pr-1">
+                  {displayedOrders.map((ord) => {
+                    const count = ord.items.reduce((s, i) => s + i.quantity, 0);
+                    const checkedUnits = ord.items.reduce(
+                      (s, i) => s + (i.checked ? i.quantity : 0),
+                      0
+                    );
+                    const pct = count > 0 ? Math.round((checkedUnits / count) * 100) : 0;
+
+                    return (
+                      <div
+                        key={ord.id}
+                        className={`rounded-2xl border-2 p-3 transition-all ${
+                          ord.status === 'despachado'
+                            ? ord.delivered
+                              ? 'bg-slate-950/60 border-slate-800 opacity-70'
+                              : 'bg-emerald-950/40 border-emerald-400 shadow-lg shadow-emerald-500/10'
+                            : ord.status === 'preparando'
+                            ? 'bg-sky-950/35 border-sky-400/80 shadow-md'
+                            : 'bg-slate-950 border-slate-800'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="font-black text-lg text-amber-400 tabular-nums">
+                              {ord.ticketNumber}
+                            </span>
+                            <span className="text-xs font-black text-white truncate max-w-[130px]">
+                              {ord.customerOrTable}
+                            </span>
+                            <span className="text-[10px] font-black bg-slate-800 text-slate-300 px-2 py-0.5 rounded-md shrink-0">
+                              {count} uds
+                            </span>
+                          </div>
+
+                          {ord.status === 'pendiente' && (
+                            <span className="text-[11px] font-black px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0">
+                              ⏳ En Cola ({formatElapsed(ord.createdAt)})
+                            </span>
+                          )}
+                          {ord.status === 'preparando' && (
+                            <span className="text-[11px] font-black px-2.5 py-1 rounded-full bg-sky-500/25 text-sky-200 border border-sky-400 animate-pulse shrink-0">
+                              🧑‍🍳 Preparando ({checkedUnits}/{count})
+                            </span>
+                          )}
+                          {ord.status === 'despachado' && (
+                            <span
+                              className={`text-[11px] font-black px-2.5 py-1 rounded-full shrink-0 ${
+                                ord.delivered
+                                  ? 'bg-slate-800 text-slate-400 border border-slate-700'
+                                  : 'bg-emerald-500 text-slate-950 shadow-md'
+                              }`}
+                            >
+                              {ord.delivered ? '🙌 Entregado' : '✅ ¡SALIÓ / LISTO!'}
+                            </span>
+                          )}
                         </div>
 
-                        {ord.status === 'pendiente' && (
-                          <span className="text-xs font-extrabold px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                            ⏳ Pendiente ({formatElapsed(ord.createdAt)})
-                          </span>
+                        {/* Barra de progreso de bandeja cuando está en cocina */}
+                        {(ord.status === 'pendiente' || ord.status === 'preparando') && (
+                          <div className="mt-2">
+                            <div className="flex justify-between text-[10px] font-bold text-slate-400 mb-1">
+                              <span>Avance en bandeja de Panadería:</span>
+                              <span className="text-emerald-400 font-black">
+                                {checkedUnits}/{count} listos ({pct}%)
+                              </span>
+                            </div>
+                            <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-gradient-to-r from-amber-400 to-emerald-400 transition-all duration-300"
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                          </div>
                         )}
-                        {ord.status === 'preparando' && (
-                          <span className="text-xs font-extrabold px-2.5 py-1 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/40 animate-pulse">
-                            👨‍🍳 Preparando ({formatElapsed(ord.createdAt)})
-                          </span>
-                        )}
-                        {ord.status === 'despachado' && (
-                          <span className="text-xs font-extrabold px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                            ✅ ¡Listo para retirar!
-                          </span>
-                        )}
-                      </div>
 
-                      <div className="flex flex-wrap gap-1.5 mt-2">
-                        {ord.items.map((item) => (
-                          <span
-                            key={item.flavorId}
-                            className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md ${
-                              item.checked
-                                ? 'bg-emerald-500/20 text-emerald-300 line-through'
-                                : 'bg-slate-800 text-slate-200'
-                            }`}
-                          >
-                            {item.quantity}x {item.flavorName}
-                          </span>
-                        ))}
+                        <div className="flex flex-wrap gap-1.5 mt-2.5">
+                          {ord.items.map((item) => (
+                            <span
+                              key={item.flavorId}
+                              className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md border ${
+                                item.checked || ord.status === 'despachado'
+                                  ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+                                  : 'bg-slate-900 border-slate-700 text-slate-200'
+                              }`}
+                            >
+                              <span>{item.checked || ord.status === 'despachado' ? '✓' : '⏳'}</span>
+                              <span>
+                                {item.quantity}x {item.flavorName}
+                              </span>
+                            </span>
+                          ))}
+                        </div>
+
+                        {ord.status === 'despachado' && onToggleOrderDelivered && (
+                          <div className="mt-2.5 pt-2 border-t border-slate-800/80 flex items-center justify-between">
+                            <span className="text-[10px] font-bold text-emerald-300/80">
+                              Salió a las{' '}
+                              {new Date(ord.dispatchedAt || ord.createdAt).toLocaleTimeString([], {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                soundEngine.playTapSound(520);
+                                onToggleOrderDelivered(ord.id);
+                              }}
+                              className={`px-3 py-1 rounded-lg text-[11px] font-black uppercase transition-all ${
+                                ord.delivered
+                                  ? 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+                                  : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow'
+                              }`}
+                            >
+                              {ord.delivered
+                                ? '↩️ Desmarcar Entrega'
+                                : '🙌 Marcar Entregado a Cliente'}
+                            </button>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Últimas tandas anunciadas por Panadería */}
+              {announcements && announcements.length > 0 && (
+                <div className="mt-4 pt-3 border-t border-slate-800">
+                  <span className="block text-[10px] font-black uppercase tracking-wider text-amber-400 mb-2">
+                    📢 Últimos Avisos de Producción (Panadería):
+                  </span>
+                  <div className="space-y-1.5 max-h-[120px] overflow-y-auto">
+                    {announcements.slice(0, 4).map((a) => (
+                      <div
+                        key={a.id}
+                        className="text-[11px] font-bold bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-2 text-slate-200"
+                      >
+                        <span className="truncate">{a.text}</span>
+                        <span className="text-[10px] text-slate-400 shrink-0">
+                          {new Date(a.createdAt).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -3319,19 +3698,30 @@
 
       useEffect(() => {
         const unsubscribe = syncEngine.subscribe((newState, meta) => {
-          const hadLessOrders = newState.orders.length > prevOrderCountRef.current;
           prevOrderCountRef.current = newState.orders.length;
           setState(newState);
 
-          if (meta?.isNewOrder || hadLessOrders) {
+          if (meta?.isNewOrder) {
             soundEngine.playNewOrderBell();
-            const newest = newState.orders[newState.orders.length - 1];
+            const newest = meta.newOrder || newState.orders[newState.orders.length - 1];
             if (newest) {
               setIncomingBanner(
                 `🔔 ¡NUEVA COMANDA ${newest.ticketNumber} (${newest.customerOrTable}) EN COLA DE PANADERÍA!`
               );
-              setTimeout(() => setIncomingBanner(null), 4000);
+              setTimeout(() => setIncomingBanner(null), 4500);
             }
+          } else if (meta?.isOrderReady && meta?.readyOrder) {
+            soundEngine.playOrderDispatchedSound();
+            setIncomingBanner(
+              `✅ ¡PEDIDO ${meta.readyOrder.ticketNumber} (${meta.readyOrder.customerOrTable}) SALIÓ DE PANADERÍA! LISTO PARA ENTREGAR`
+            );
+            setTimeout(() => setIncomingBanner(null), 5500);
+          } else if (meta?.isOrderPreparing && meta?.preparingOrder) {
+            soundEngine.playTapSound(640);
+            setIncomingBanner(
+              `🧑‍🍳 PANADERÍA ESTÁ PREPARANDO EL PEDIDO ${meta.preparingOrder.ticketNumber} (${meta.preparingOrder.customerOrTable})`
+            );
+            setTimeout(() => setIncomingBanner(null), 4000);
           } else if (meta?.isNewAnnouncement && meta?.announcement) {
             if (meta.announcement.type === 'flavor_86') {
               soundEngine.play86Alert();
@@ -3359,27 +3749,36 @@
       };
 
       const handleCreateOrder = (orderData) => {
+        const maxExistingNum = state.orders.reduce((max, o) => {
+          const m = String(o.ticketNumber || '').match(/\d+/);
+          return m ? Math.max(max, parseInt(m[0], 10)) : max;
+        }, 0);
+        const nextSeqNum = Math.max(state.nextTicketSeq || 1, maxExistingNum + 1);
+
         const newOrder = {
           id: `ord-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          ticketNumber: orderData.ticketNumber,
+          ticketNumber: orderData.ticketNumber || `#${String(nextSeqNum).padStart(3, '0')}`,
           customerOrTable: orderData.customerOrTable,
           orderType: orderData.orderType,
           note: orderData.note,
           items: orderData.items,
           status: 'pendiente',
+          modCount: 1,
+          delivered: false,
           createdAt: Date.now(),
         };
 
         const nextState = {
           ...state,
           orders: [...state.orders, newOrder],
-          nextTicketSeq: state.nextTicketSeq + 1,
+          nextTicketSeq: nextSeqNum + 1,
           lastUpdated: Date.now(),
         };
 
         prevOrderCountRef.current = nextState.orders.length;
         syncEngine.publishState(nextState, {
           isNewOrder: true,
+          newOrder,
           newOrderTicket: newOrder.ticketNumber,
         });
 
@@ -3390,17 +3789,30 @@
 
       const handleUpdateOrderStatus = (orderId, nextStatus) => {
         const now = Date.now();
+        let targetOrder = null;
         const updatedOrders = state.orders.map((ord) => {
           if (ord.id !== orderId) return ord;
-          return {
+          const updated = {
             ...ord,
             status: nextStatus,
+            modCount: (ord.modCount || 1) + 1,
             startedAt:
               nextStatus === 'preparando' && !ord.startedAt ? now : ord.startedAt,
             dispatchedAt: nextStatus === 'despachado' ? now : ord.dispatchedAt,
           };
+          targetOrder = updated;
+          return updated;
         });
-        syncEngine.publishState({ ...state, orders: updatedOrders, lastUpdated: now });
+
+        syncEngine.publishState(
+          { ...state, orders: updatedOrders, lastUpdated: now },
+          {
+            isOrderPreparing: nextStatus === 'preparando',
+            preparingOrder: nextStatus === 'preparando' ? targetOrder : null,
+            isOrderReady: nextStatus === 'despachado',
+            readyOrder: nextStatus === 'despachado' ? targetOrder : null,
+          }
+        );
       };
 
       const handleToggleOrderItemCheck = (orderId, flavorId) => {
@@ -3409,7 +3821,27 @@
           const nextItems = ord.items.map((item) =>
             item.flavorId === flavorId ? { ...item, checked: !item.checked } : item
           );
-          return { ...ord, items: nextItems };
+          return {
+            ...ord,
+            modCount: (ord.modCount || 1) + 1,
+            items: nextItems,
+          };
+        });
+        syncEngine.publishState({
+          ...state,
+          orders: updatedOrders,
+          lastUpdated: Date.now(),
+        });
+      };
+
+      const handleToggleOrderDelivered = (orderId) => {
+        const updatedOrders = state.orders.map((ord) => {
+          if (ord.id !== orderId) return ord;
+          return {
+            ...ord,
+            delivered: !ord.delivered,
+            modCount: (ord.modCount || 1) + 1,
+          };
         });
         syncEngine.publishState({
           ...state,
@@ -3452,7 +3884,9 @@
         const willBeAvailable = target ? !target.available : false;
 
         const updatedFlavors = state.flavors.map((f) =>
-          f.id === flavorId ? { ...f, available: !f.available } : f
+          f.id === flavorId
+            ? { ...f, available: !f.available, modCount: (f.modCount || 1) + 1 }
+            : f
         );
 
         const newAnn = {
@@ -3490,21 +3924,26 @@
       };
 
       const handleSaveFlavors = (nextFlavors) => {
+        const bumped = nextFlavors.map((f) => ({
+          ...f,
+          modCount: (f.modCount || 1) + 1,
+        }));
         syncEngine.publishState({
           ...state,
-          flavors: nextFlavors,
+          flavors: bumped,
           lastUpdated: Date.now(),
         });
       };
 
-      // Iniciar Nuevo Día: LIMPIA COMANDAS Y CONSERVA TODOS LOS SABORES CREADOS
+      // Iniciar Nuevo Día: INCREMENTA EPOCH PARA LIMPIAR EN TODOS LOS DISPOSITIVOS Y CONSERVA SABORES
       const handleClearAllOrders = () => {
         soundEngine.playTapSound(350);
         prevOrderCountRef.current = 0;
         syncEngine.publishState({
           ...state,
-          // Conserva siempre los sabores creados
+          epoch: (state.epoch || 1) + 1,
           orders: [],
+          announcements: [],
           nextTicketSeq: 1,
           lastUpdated: Date.now(),
         });
@@ -3513,11 +3952,12 @@
       // Cargar Demo: CONSERVA LOS SABORES CREADOS
       const handleResetDemoData = () => {
         soundEngine.playNewOrderBell();
-        const currentFlavors = state.flavors && state.flavors.length > 0 ? state.flavors : INITIAL_FLAVORS;
+        const currentFlavors = ensureAllCanonicalFlavors(state.flavors);
         const demoOrders = createInitialDemoOrders(currentFlavors);
         prevOrderCountRef.current = demoOrders.length;
         syncEngine.publishState({
           ...state,
+          epoch: (state.epoch || 1) + 1,
           flavors: currentFlavors,
           orders: demoOrders,
           nextTicketSeq: demoOrders.length + 1,
@@ -3528,15 +3968,20 @@
       // Restaurar Fábrica: SOLO SI SE CONFIRMA
       const handleRestoreFactoryFlavors = () => {
         soundEngine.play86Alert();
+        const resetFlvs = INITIAL_FLAVORS.map((f) => ({ ...f, modCount: (state.version || 1) + 10 }));
         syncEngine.publishState({
           ...state,
-          flavors: INITIAL_FLAVORS,
+          flavors: resetFlvs,
           lastUpdated: Date.now(),
         });
       };
 
       const activeOrderCount = state.orders.filter(
         (o) => o.status === 'pendiente' || o.status === 'preparando'
+      ).length;
+
+      const readyUndeliveredCount = state.orders.filter(
+        (o) => o.status === 'despachado' && !o.delivered
       ).length;
 
       const totalPendingUnits = state.orders
@@ -3557,7 +4002,7 @@
                     BULL MARKET
                   </span>
                   <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                    ● MULTI-DISPOSITIVO EN VIVO
+                    ● SYNC EN VIVO
                   </span>
                 </div>
                 <span className="block text-[10px] font-bold uppercase tracking-wider text-amber-400/90 -mt-0.5">
@@ -3570,13 +4015,18 @@
               <button
                 type="button"
                 onClick={() => navigate('/barra')}
-                className={`px-3 md:px-4 py-1.5 rounded-xl font-extrabold text-xs md:text-sm transition-all ${
+                className={`px-3 md:px-4 py-1.5 rounded-xl font-extrabold text-xs md:text-sm flex items-center gap-1.5 transition-all ${
                   route === '/barra'
                     ? 'bg-amber-500 text-slate-950 shadow-md'
                     : 'text-slate-300 hover:text-white'
                 }`}
               >
-                🍹 1. Barra
+                <span>🍹 1. Barra / Mesero</span>
+                {readyUndeliveredCount > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-emerald-500 text-slate-950 animate-bounce">
+                    ✓ {readyUndeliveredCount}
+                  </span>
+                )}
               </button>
 
               <button
@@ -3630,6 +4080,18 @@
             <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
+                onClick={() => {
+                  soundEngine.playTapSound(560);
+                  syncEngine.forceSyncNow();
+                }}
+                title="Sincronizar ahora con todos los dispositivos"
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-300 text-xs font-bold border border-slate-700 active:scale-95"
+              >
+                🔄 Sync
+              </button>
+
+              <button
+                type="button"
                 onClick={() => soundEngine.playNewOrderBell()}
                 className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 text-xs font-bold border border-slate-700"
               >
@@ -3662,7 +4124,7 @@
           </header>
 
           {incomingBanner && (
-            <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 text-slate-950 font-black text-center py-2 px-4 text-sm uppercase tracking-wider shadow-lg animate-bounce z-50">
+            <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 text-slate-950 font-black text-center py-2.5 px-4 text-sm uppercase tracking-wider shadow-lg animate-bounce z-50">
               {incomingBanner}
             </div>
           )}
@@ -3675,6 +4137,7 @@
                 nextTicketSeq={state.nextTicketSeq}
                 announcements={state.announcements || []}
                 onCreateOrder={handleCreateOrder}
+                onToggleOrderDelivered={handleToggleOrderDelivered}
               />
             )}
 
@@ -3707,7 +4170,7 @@
               <div className="grid grid-cols-1 xl:grid-cols-12 divide-y xl:divide-y-0 xl:divide-x divide-slate-800">
                 <div className="xl:col-span-5 bg-slate-950">
                   <div className="bg-amber-500/10 border-b border-amber-500/30 px-4 py-2 text-xs font-black uppercase text-amber-400">
-                    🍹 Vista Emisor de Barra (/barra)
+                    🍹 Vista Emisor de Barra / Mesero (/barra)
                   </div>
                   <BarraView
                     flavors={ensureAllCanonicalFlavors(state.flavors)}
@@ -3715,6 +4178,7 @@
                     nextTicketSeq={state.nextTicketSeq}
                     announcements={state.announcements || []}
                     onCreateOrder={handleCreateOrder}
+                    onToggleOrderDelivered={handleToggleOrderDelivered}
                   />
                 </div>
                 <div className="xl:col-span-7 bg-slate-950">
