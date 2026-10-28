@@ -382,11 +382,64 @@
     // ============================================================================
     // 3. PERSISTENCIA DE SABORES Y SINCRONIZACIÓN CENTRALIZADA MULTI-DISPOSITIVO
     // ============================================================================
-    const STORAGE_STATE_KEY = 'bull_market_kds_state_v2';
-    const STORAGE_FLAVORS_KEY = 'bull_market_kds_flavors_v2';
-    const STORAGE_ROOM_KEY = 'bull_market_kds_room_v2';
-    const DEFAULT_ROOM_CODE = 'bull_market_kds_live_v1';
-    const LOCAL_CHANNEL_NAME = 'bull_market_kds_channel_v2';
+    const STORAGE_STATE_KEY = 'bull_market_kds_state_v3';
+    const STORAGE_FLAVORS_KEY = 'bull_market_kds_flavors_v3';
+    const STORAGE_ROOM_KEY = 'bull_market_kds_room_v3';
+    const DEFAULT_ROOM_CODE = 'bull_market_kds_live_v3';
+    const LOCAL_CHANNEL_NAME = 'bull_market_kds_channel_v3';
+
+    // Limpiar cachés antiguos (v1/v2) que pudieran tener 1 solo sabor de prueba guardado
+    try {
+      localStorage.removeItem('bull_market_kds_state_v1');
+      localStorage.removeItem('bull_market_kds_flavors_v1');
+      localStorage.removeItem('bull_market_kds_state_v2');
+      localStorage.removeItem('bull_market_kds_flavors_v2');
+      localStorage.removeItem('bull_market_kds_room_v2');
+    } catch (e) {}
+
+    // Blindaje total: garantiza que SIEMPRE estén presentes los 10 sabores oficiales de Bull Market con sus fotos
+    function ensureAllCanonicalFlavors(inputList) {
+      const list = Array.isArray(inputList) ? inputList : [];
+      const existingMap = new Map(list.filter(Boolean).map((f) => [f.id, f]));
+
+      const completeFlavors = INITIAL_FLAVORS.map((base) => {
+        const saved = existingMap.get(base.id);
+        if (!saved) {
+          return {
+            ...base,
+            imageUrl: getRollImage(base),
+          };
+        }
+        const cleanEmoji = saved.emoji && saved.emoji !== '??' ? saved.emoji : base.emoji;
+        return {
+          ...base,
+          ...saved,
+          name: base.name,
+          emoji: cleanEmoji,
+          imageKey: base.imageKey,
+          imageUrl: getRollImage(base),
+        };
+      });
+
+      // Conservar cualquier sabor extra legítimo agregado por el usuario desde Admin
+      list.forEach((custom) => {
+        if (
+          custom &&
+          custom.id &&
+          custom.id !== 'flv-1' &&
+          (custom.name || '').trim().toUpperCase() !== 'CHOCOAVELLANAS' &&
+          !INITIAL_FLAVORS.some((b) => b.id === custom.id)
+        ) {
+          completeFlavors.push({
+            ...custom,
+            emoji: custom.emoji && custom.emoji !== '??' ? custom.emoji : '🥐',
+            imageUrl: getRollImage(custom),
+          });
+        }
+      });
+
+      return completeFlavors;
+    }
 
     // Obtener sabores guardados (Garantiza siempre los 10 sabores Bull Market y repara emojis)
     function getSavedFlavors() {
@@ -394,42 +447,16 @@
         const raw = localStorage.getItem(STORAGE_FLAVORS_KEY);
         if (raw) {
           const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            // Unir siempre con INITIAL_FLAVORS para garantizar que los 10 sabores oficiales existan
-            const existingMap = new Map(parsed.map((f) => [f.id, f]));
-            const completeFlavors = INITIAL_FLAVORS.map((base) => {
-              const saved = existingMap.get(base.id);
-              if (!saved) return base;
-              const cleanEmoji = saved.emoji && saved.emoji !== '??' ? saved.emoji : base.emoji;
-              return {
-                ...base,
-                ...saved,
-                name: base.name, // Mantener nombre canónico
-                emoji: cleanEmoji,
-                imageKey: base.imageKey,
-                imageUrl: base.imageUrl,
-              };
-            });
-
-            // Agregar sabores personalizados extra creados por el usuario
-            parsed.forEach((custom) => {
-              if (!INITIAL_FLAVORS.some((b) => b.id === custom.id)) {
-                completeFlavors.push(custom);
-              }
-            });
-
-            return completeFlavors;
-          }
+          return ensureAllCanonicalFlavors(parsed);
         }
       } catch (e) {}
-      return INITIAL_FLAVORS;
+      return ensureAllCanonicalFlavors(INITIAL_FLAVORS);
     }
 
     function saveFlavors(flavors) {
       try {
-        if (Array.isArray(flavors) && flavors.length > 0) {
-          localStorage.setItem(STORAGE_FLAVORS_KEY, JSON.stringify(flavors));
-        }
+        const safe = ensureAllCanonicalFlavors(flavors);
+        localStorage.setItem(STORAGE_FLAVORS_KEY, JSON.stringify(safe));
       } catch (e) {}
     }
 
@@ -442,7 +469,7 @@
     }
 
     function createInitialDemoOrders(flavors) {
-      const flvs = flavors || INITIAL_FLAVORS;
+      const flvs = ensureAllCanonicalFlavors(flavors);
       const getF = (code) => flvs.find((f) => f.shortCode === code) || flvs[0];
       const now = Date.now();
 
@@ -562,7 +589,7 @@
           if (parsed && Array.isArray(parsed.orders)) {
             return {
               ...parsed,
-              flavors: parsed.flavors && parsed.flavors.length > 0 ? parsed.flavors : currentFlavors,
+              flavors: ensureAllCanonicalFlavors(parsed.flavors || currentFlavors),
               roomCode: currentRoom,
             };
           }
@@ -700,40 +727,31 @@
         }));
 
         // 2. REHIDRATAR Y UNIR SABORES (Los 10 sabores canónicos jamás se borran)
-        let currentBase =
-          Array.isArray(this.currentState.flavors) && this.currentState.flavors.length >= INITIAL_FLAVORS.length
-            ? [...this.currentState.flavors]
-            : INITIAL_FLAVORS.map((b) => ({ ...b }));
+        const baseList = ensureAllCanonicalFlavors(this.currentState.flavors);
+        const incomingMap = new Map(
+          (Array.isArray(incoming.flavors) ? incoming.flavors : []).filter(Boolean).map((f) => [f.id, f])
+        );
 
-        if (incoming.flavors && incoming.flavors.length > 0) {
+        const combinedList = baseList.map((f) => {
+          const incFlv = incomingMap.get(f.id);
+          if (!incFlv) return f;
+          return {
+            ...f,
+            ...incFlv,
+            available: typeof incFlv.available === 'boolean' ? incFlv.available : f.available,
+          };
+        });
+
+        // Agregar sabores personalizados nuevos que vengan de otro dispositivo
+        if (Array.isArray(incoming.flavors)) {
           incoming.flavors.forEach((incFlv) => {
-            const idx = currentBase.findIndex((f) => f.id === incFlv.id);
-            const baseRef = INITIAL_FLAVORS.find((b) => b.id === incFlv.id) || {};
-            const cleanEmoji = incFlv.emoji && incFlv.emoji !== '??' ? incFlv.emoji : baseRef.emoji || '🥐';
-            const rollImg = getRollImage(incFlv);
-
-            if (idx >= 0) {
-              currentBase[idx] = {
-                ...baseRef,
-                ...currentBase[idx],
-                ...incFlv,
-                name: baseRef.name || currentBase[idx].name || incFlv.name,
-                emoji: cleanEmoji,
-                imageKey: baseRef.imageKey || currentBase[idx].imageKey || incFlv.imageKey || '',
-                imageUrl: currentBase[idx].imageUrl || rollImg || baseRef.imageUrl || '',
-              };
-            } else {
-              currentBase.push({
-                ...baseRef,
-                ...incFlv,
-                emoji: cleanEmoji,
-                imageKey: baseRef.imageKey || incFlv.imageKey || '',
-                imageUrl: rollImg || baseRef.imageUrl || '',
-              });
+            if (incFlv && incFlv.id && !combinedList.some((c) => c.id === incFlv.id)) {
+              combinedList.push(incFlv);
             }
           });
         }
-        const mergedFlavors = currentBase;
+
+        const mergedFlavors = ensureAllCanonicalFlavors(combinedList);
         saveFlavors(mergedFlavors);
 
         // 3. MEZCLAR ANUNCIOS DE PRODUCCIÓN Y AVISOS DE PANADERÍA A BARRA
@@ -785,16 +803,15 @@
       }
 
       publishState(nextState, meta) {
+        const safeFlavors = ensureAllCanonicalFlavors(nextState.flavors);
         const stamped = {
           ...nextState,
+          flavors: safeFlavors,
           version: (this.currentState.version || 0) + 1,
           lastUpdated: Date.now(),
         };
         this.currentState = stamped;
-
-        if (stamped.flavors && stamped.flavors.length > 0) {
-          saveFlavors(stamped.flavors);
-        }
+        saveFlavors(safeFlavors);
 
         try {
           localStorage.setItem(STORAGE_STATE_KEY, JSON.stringify(stamped));
@@ -3653,7 +3670,7 @@
           <div className="flex-1">
             {route === '/barra' && (
               <BarraView
-                flavors={state.flavors}
+                flavors={ensureAllCanonicalFlavors(state.flavors)}
                 orders={state.orders}
                 nextTicketSeq={state.nextTicketSeq}
                 announcements={state.announcements || []}
@@ -3663,7 +3680,7 @@
 
             {route === '/panaderia' && (
               <PanaderiaView
-                flavors={state.flavors}
+                flavors={ensureAllCanonicalFlavors(state.flavors)}
                 orders={state.orders}
                 announcements={state.announcements || []}
                 onUpdateOrderStatus={handleUpdateOrderStatus}
@@ -3675,7 +3692,7 @@
 
             {route === '/admin' && (
               <AdminView
-                flavors={state.flavors}
+                flavors={ensureAllCanonicalFlavors(state.flavors)}
                 orders={state.orders}
                 roomCode={state.roomCode}
                 onSaveFlavors={handleSaveFlavors}
@@ -3693,7 +3710,7 @@
                     🍹 Vista Emisor de Barra (/barra)
                   </div>
                   <BarraView
-                    flavors={state.flavors}
+                    flavors={ensureAllCanonicalFlavors(state.flavors)}
                     orders={state.orders}
                     nextTicketSeq={state.nextTicketSeq}
                     announcements={state.announcements || []}
@@ -3705,7 +3722,7 @@
                     🔥 Vista KDS Panadería en Vivo (/panaderia)
                   </div>
                   <PanaderiaView
-                    flavors={state.flavors}
+                    flavors={ensureAllCanonicalFlavors(state.flavors)}
                     orders={state.orders}
                     announcements={state.announcements || []}
                     onUpdateOrderStatus={handleUpdateOrderStatus}
